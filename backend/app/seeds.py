@@ -181,15 +181,23 @@ DEFAULT_TEXTS: list[dict[str, str]] = [
     {
         "key": "profile_header",
         "value_html": (
-            "👤 <b>Ваш профиль</b>\n\n"
-            "Баланс: <b>{balance} ₽</b>\n\n"
-            "Активные подписки:"
+            "👤 <b>{name}</b>\n"
+            "ID: <code>{tg_id}</code> · {username}\n\n"
+            "💰 Баланс: <b>{balance} ₽</b>\n"
+            "📦 Подписок: <b>{subs_count}</b> · 👥 Рефералов: <b>{invited_count}</b>\n\n"
+            "Активные подписки:\n{subscriptions}"
         ),
         "description": "Заголовок раздела «Профиль».",
     },
     {
         "key": "profile_no_subscriptions",
-        "value_html": "У вас пока нет активных подписок.",
+        "value_html": (
+            "👤 <b>{name}</b>\n"
+            "ID: <code>{tg_id}</code> · {username}\n\n"
+            "💰 Баланс: <b>{balance} ₽</b>\n"
+            "📦 Подписок: <b>0</b> · 👥 Рефералов: <b>{invited_count}</b>\n\n"
+            "У вас пока нет активных подписок."
+        ),
         "description": "Профиль: нет активных подписок.",
     },
     {
@@ -302,6 +310,17 @@ DEFAULT_TEXTS: list[dict[str, str]] = [
             "❌ Этот промокод уже истёк либо не соблюдены условия."
         ),
         "description": "Алиас единого сообщения для backward-compat.",
+    },
+    {
+        "key": "promo_discount_requires_purchase",
+        "value_html": (
+            "🎟 <b>Это промокод на скидку.</b>\n"
+            "Чтобы применить его, начните оформление подписки в каталоге — "
+            "ввести промокод можно будет на этапе выбора длительности."
+        ),
+        "description": (
+            "Сообщение при вводе скидочного промокода вне покупки."
+        ),
     },
     # ---------- Stage 3: referral program ----------
     {
