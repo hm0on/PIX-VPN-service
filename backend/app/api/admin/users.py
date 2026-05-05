@@ -464,6 +464,7 @@ async def adjust_balance(
             "format_kwargs": {
                 "delta": _kopecks_to_rub_str(delta_kopecks),
                 "balance": f"{new_balance / 100:.2f}",
+                "reason": payload.reason,
             },
             "parse_mode": "HTML",
         },
