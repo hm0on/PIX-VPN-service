@@ -30,11 +30,20 @@ log = get_logger("bot.texts")
 
 @dataclass(slots=True, frozen=True)
 class TextEntry:
-    """A single text record cached from backend."""
+    """A single text record cached from backend.
+
+    For ``kind='message'`` rows ``value_html`` is the rendered HTML body and
+    ``media_*`` may carry an attachment (see :func:`send_text_or_media`). For
+    ``kind='button'`` rows ``value_html`` is the plain label string and
+    ``icon_custom_emoji_id`` may carry a Telegram custom-emoji document id
+    that the bot should pass to ``InlineKeyboardButton.icon_custom_emoji_id``.
+    """
 
     value_html: str
     media_file_id: str | None = None
     media_kind: str | None = None  # "photo" | "video" | "animation" | None
+    kind: str = "message"
+    icon_custom_emoji_id: str | None = None
 
 
 # Hardcoded fallback for when Backend is unreachable AND no cached value.
@@ -297,6 +306,44 @@ _HARDCODED_FALLBACKS: dict[str, str] = {
 }
 
 
+# Hardcoded fallbacks for inline-button labels (Stage 6). These mirror the
+# original literal strings in ``app/keyboards/*.py`` so a backend outage
+# during cold start still gives a usable UI. Keep in sync with the seed
+# block in alembic migration ``0008_text_kind_and_icon`` — the migration
+# loads the same labels into the database on first deploy.
+_BUTTON_FALLBACKS: dict[str, str] = {
+    "btn.main_menu.catalog": "Каталог",
+    "btn.main_menu.profile": "Профиль",
+    "btn.main_menu.support": "Поддержка",
+    "btn.main_menu.promo": "Промокод",
+    "btn.main_menu.idea": "Предложить идею",
+    "btn.main_menu.about": "О проекте",
+    "btn.common.back": "← Назад",
+    "btn.common.to_menu": "🏠 В меню",
+    "btn.common.subscribe": "Подписаться",
+    "btn.common.subscribed": "Я подписался ✅",
+    "btn.profile.add_more": "➕ Оформить ещё",
+    "btn.profile.topup": "💰 Пополнить баланс",
+    "btn.profile.referral": "🎁 Реферальная программа",
+    "btn.subscription.howto": "📖 Как подключиться",
+    "btn.subscription.extend": "♻️ Продлить",
+    "btn.payment.sbp": "СБП",
+    "btn.payment.cryptobot": "CryptoBot",
+    "btn.payment.crypto": "Криптовалюта",
+    "btn.payment.balance": "💰 Баланс",
+    "btn.payment.balance_locked": "🔒 Баланс",
+    "btn.payment.pay": "💳 Оплатить",
+    "btn.payment.cancel": "← Отменить",
+    "btn.ticket.create_support": "Создать тикет",
+    "btn.ticket.create_idea": "Предложить идею",
+    "btn.ticket.close_yes": "Да, закрыть",
+    "btn.ticket.close_no": "Отмена",
+    "btn.promo.skip": "Нет промокода",
+    "btn.promo.retry": "✏️ Ввести другой",
+    "btn.promo.skip_alt": "Без промокода",
+}
+
+
 class TextService:
     """Caches HTML texts (with optional media) in-memory; renders via ``str.format``."""
 
@@ -323,6 +370,8 @@ class TextService:
                     value_html=item.get("value_html") or "",
                     media_file_id=item.get("media_file_id"),
                     media_kind=item.get("media_kind"),
+                    kind=item.get("kind") or "message",
+                    icon_custom_emoji_id=item.get("icon_custom_emoji_id"),
                 )
                 for key, item in raw.items()
             }
@@ -336,6 +385,9 @@ class TextService:
         fallback = _HARDCODED_FALLBACKS.get(key)
         if fallback is not None:
             return TextEntry(value_html=fallback)
+        button_fallback = _BUTTON_FALLBACKS.get(key)
+        if button_fallback is not None:
+            return TextEntry(value_html=button_fallback, kind="button")
         return None
 
     @staticmethod
@@ -377,7 +429,39 @@ class TextService:
             value_html=self._format(entry.value_html, **kwargs),
             media_file_id=entry.media_file_id,
             media_kind=entry.media_kind,
+            kind=entry.kind,
+            icon_custom_emoji_id=entry.icon_custom_emoji_id,
         )
+
+    async def get_button(
+        self, key: str, /, **kwargs: object
+    ) -> tuple[str, str | None]:
+        """Return ``(label, icon_custom_emoji_id)`` for an inline-button key.
+
+        Behaviour:
+
+        - cache hit / fallback hit: the label is rendered through ``str.format``
+          (so callers can parameterise things like a price or counter) and
+          the optional premium-emoji document id is returned alongside.
+        - miss: the bot still has to render *something*, so we return a loud
+          ``"???"`` placeholder rather than a Python exception. Missing keys
+          surface in the bot logs via ``texts.missing_key`` for triage.
+
+        Telegram's ``InlineKeyboardButton.text`` is plain text — no HTML, no
+        entities, no formatting. Custom emoji on the button can only be set
+        via the separate ``icon_custom_emoji_id`` field (Bot API ≥ 7.x), so
+        operators who want a premium emoji on a button paste the emoji's
+        document id into the admin editor and we forward it here.
+        """
+        if time.monotonic() >= self._expires_at or key not in self._cache:
+            await self._refresh()
+
+        entry = self._resolve(key)
+        if entry is None:
+            log.warning("texts.missing_key", key=key)
+            return ("???", None)
+        label = self._format(entry.value_html, **kwargs) if kwargs else entry.value_html
+        return (label, entry.icon_custom_emoji_id)
 
     def invalidate(self) -> None:
         """Drop the cache (forces a refresh on the next ``get``)."""

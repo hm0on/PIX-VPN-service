@@ -169,7 +169,9 @@ async def cb_profile(
         text = await texts.get("profile_no_subscriptions", **fmt)
 
     await safe_edit_or_answer(
-        callback, text, reply_markup=profile_kb(active_subs, has_active)
+        callback,
+        text,
+        reply_markup=await profile_kb(active_subs, has_active, texts),
     )
 
 
@@ -234,8 +236,10 @@ async def cb_subscription(
     await safe_edit_or_answer(
         callback,
         text,
-        reply_markup=subscription_detail_kb(
-            subscription_id, howto_url=settings.HOWTO_CONNECT_URL
+        reply_markup=await subscription_detail_kb(
+            subscription_id,
+            howto_url=settings.HOWTO_CONNECT_URL,
+            text_service=texts,
         ),
     )
 
@@ -745,7 +749,7 @@ async def cb_ext_pay(
             "subscription_extended", new_expires_at=_format_date(new_expires_at)
         )
         await safe_edit_or_answer(
-            callback, text, reply_markup=key_issued_kb(settings.HOWTO_CONNECT_URL)
+            callback, text, reply_markup=await key_issued_kb(settings.HOWTO_CONNECT_URL, text_service=texts)
         )
         await state.clear()
         await bot_log(
@@ -778,7 +782,7 @@ async def cb_ext_pay(
         provider=provider,
     )
     await safe_edit_or_answer(
-        callback, text, reply_markup=payment_link_kb(payment_url)
+        callback, text, reply_markup=await payment_link_kb(payment_url, text_service=texts)
     )
 
     await state.update_data(payment_id=payment_id, provider=provider)

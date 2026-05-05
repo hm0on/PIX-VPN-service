@@ -23,6 +23,8 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.keyboards.main_menu import make_button
+from app.utils.texts import TextService
+from app.utils.texts import TextService
 
 
 def _format_rub(amount_kopecks: int) -> str:
@@ -174,11 +176,12 @@ def apply_discount(amount_kopecks: int, discount_percent: int | None) -> int:
     return amount_kopecks * (100 - pct) // 100
 
 
-def payment_methods_kb(
+async def payment_methods_kb(
     amount_kopecks: int,
     balance_kopecks: int,
     *,
     discount_percent: int | None = None,
+    text_service: TextService,
 ) -> InlineKeyboardMarkup:
     """4-button grid: SBP / CryptoBot / Crypto / Balance.
 
@@ -192,54 +195,116 @@ def payment_methods_kb(
     """
     effective_amount = apply_discount(amount_kopecks, discount_percent)
     can_use_balance = balance_kopecks >= effective_amount
-    balance_label = "💰 Баланс" if can_use_balance else "🔒 Баланс"
+
+    sbp_label, sbp_icon = await text_service.get_button("btn.payment.sbp")
+    cb_label, cb_icon = await text_service.get_button("btn.payment.cryptobot")
+    crypto_label, crypto_icon = await text_service.get_button("btn.payment.crypto")
+    balance_key = "btn.payment.balance" if can_use_balance else "btn.payment.balance_locked"
+    balance_label, balance_icon = await text_service.get_button(balance_key)
+    back_label, back_icon = await text_service.get_button("btn.common.back")
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                make_button("СБП", callback_data="pay:platega_sbp", color="blue"),
                 make_button(
-                    "CryptoBot", callback_data="pay:cryptobot", color="blue"
+                    sbp_label,
+                    callback_data="pay:platega_sbp",
+                    color="blue",
+                    icon_custom_emoji_id=sbp_icon,
+                ),
+                make_button(
+                    cb_label,
+                    callback_data="pay:cryptobot",
+                    color="blue",
+                    icon_custom_emoji_id=cb_icon,
                 ),
             ],
             [
                 make_button(
-                    "Криптовалюта",
+                    crypto_label,
                     callback_data="pay:platega_crypto",
                     color="blue",
+                    icon_custom_emoji_id=crypto_icon,
                 ),
-                make_button(balance_label, callback_data="pay:balance"),
+                make_button(
+                    balance_label,
+                    callback_data="pay:balance",
+                    icon_custom_emoji_id=balance_icon,
+                ),
             ],
-            [make_button("← Назад", callback_data="pay_back")],
+            [
+                make_button(
+                    back_label,
+                    callback_data="pay_back",
+                    icon_custom_emoji_id=back_icon,
+                )
+            ],
         ]
     )
 
 
-def payment_link_kb(payment_url: str) -> InlineKeyboardMarkup:
+async def payment_link_kb(
+    payment_url: str, *, text_service: TextService
+) -> InlineKeyboardMarkup:
     """Final invoice keyboard: external pay button + cancel.
 
     "Оплатить" opens the provider page in the user's browser. "Отменить"
     just unwinds the FSM on our side — Stage 2 doesn't notify the provider.
     """
+    pay_label, pay_icon = await text_service.get_button("btn.payment.pay")
+    cancel_label, cancel_icon = await text_service.get_button("btn.payment.cancel")
+    pay_extra: dict[str, object] = (
+        {"icon_custom_emoji_id": pay_icon} if pay_icon else {}
+    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Оплатить", url=payment_url)],
-            [make_button("← Отменить", callback_data="pay_cancel")],
+            [
+                InlineKeyboardButton(
+                    text=pay_label, url=payment_url, **pay_extra  # type: ignore[arg-type]
+                )
+            ],
+            [
+                make_button(
+                    cancel_label,
+                    callback_data="pay_cancel",
+                    icon_custom_emoji_id=cancel_icon,
+                )
+            ],
         ]
     )
 
 
-def key_issued_kb(howto_url: str | None) -> InlineKeyboardMarkup:
+async def key_issued_kb(
+    howto_url: str | None, *, text_service: TextService
+) -> InlineKeyboardMarkup:
     """Post-success keyboard shown to the user with the freshly issued key.
 
     "Как подключиться" is an external URL button (post in the channel) and
     is omitted gracefully if ``HOWTO_CONNECT_URL`` is unset — falling back
     to a callback that just shows a short hint via the about/help section.
     """
+    howto_label, howto_icon = await text_service.get_button("btn.subscription.howto")
+    menu_label, menu_icon = await text_service.get_button("btn.common.to_menu")
+
     rows: list[list[InlineKeyboardButton]] = []
     if howto_url:
-        rows.append(
-            [InlineKeyboardButton(text="📖 Как подключиться", url=howto_url)]
+        howto_extra: dict[str, object] = (
+            {"icon_custom_emoji_id": howto_icon} if howto_icon else {}
         )
-    rows.append([make_button("🏠 В меню", callback_data="main_menu")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=howto_label, url=howto_url, **howto_extra  # type: ignore[arg-type]
+                )
+            ]
+        )
+    rows.append(
+        [
+            make_button(
+                menu_label,
+                callback_data="main_menu",
+                icon_custom_emoji_id=menu_icon,
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)

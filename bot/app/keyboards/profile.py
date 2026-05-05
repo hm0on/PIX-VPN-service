@@ -22,6 +22,8 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.keyboards.main_menu import make_button
+from app.utils.texts import TextService
+from app.utils.texts import TextService
 
 
 def _format_short_date(value: Any) -> str:
@@ -44,13 +46,18 @@ def _format_short_date(value: Any) -> str:
     return dt.strftime("%d.%m.%Y")
 
 
-def profile_kb(
-    subscriptions: list[dict[str, Any]], has_active: bool  # noqa: ARG001
+async def profile_kb(
+    subscriptions: list[dict[str, Any]],
+    has_active: bool,  # noqa: ARG001
+    text_service: TextService,
 ) -> InlineKeyboardMarkup:
     """Profile keyboard — one button per active subscription, then actions.
 
     ``has_active`` is currently unused (we infer from the list length) but is
     kept in the signature for forward-compat with rich profile cards.
+    Subscription rows still use a dynamically built label ("name, до date")
+    so they're not seeded in the texts table — only the four navigation
+    actions below are admin-editable.
     """
     rows: list[list[InlineKeyboardButton]] = []
 
@@ -63,12 +70,46 @@ def profile_kb(
         label = f"{name}, до {expires}"
         rows.append([make_button(label, callback_data=f"sub:{sub['id']}")])
 
-    rows.append([make_button("➕ Оформить ещё", callback_data="catalog")])
-    rows.append([make_button("💰 Пополнить баланс", callback_data="topup")])
+    add_label, add_icon = await text_service.get_button("btn.profile.add_more")
+    topup_label, topup_icon = await text_service.get_button("btn.profile.topup")
+    ref_label, ref_icon = await text_service.get_button("btn.profile.referral")
+    back_label, back_icon = await text_service.get_button("btn.common.back")
     rows.append(
-        [make_button("🎁 Реферальная программа", callback_data="referral_program")]
+        [
+            make_button(
+                add_label,
+                callback_data="catalog",
+                icon_custom_emoji_id=add_icon,
+            )
+        ]
     )
-    rows.append([make_button("← Назад", callback_data="main_menu")])
+    rows.append(
+        [
+            make_button(
+                topup_label,
+                callback_data="topup",
+                icon_custom_emoji_id=topup_icon,
+            )
+        ]
+    )
+    rows.append(
+        [
+            make_button(
+                ref_label,
+                callback_data="referral_program",
+                icon_custom_emoji_id=ref_icon,
+            )
+        ]
+    )
+    rows.append(
+        [
+            make_button(
+                back_label,
+                callback_data="main_menu",
+                icon_custom_emoji_id=back_icon,
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -95,32 +136,63 @@ def referral_kb(ref_link: str, share_text: str) -> InlineKeyboardMarkup:
     )
 
 
-def subscription_detail_kb(
-    subscription_id: int, howto_url: str | None = None  # noqa: ARG001
+async def subscription_detail_kb(
+    subscription_id: int,
+    howto_url: str | None = None,
+    *,
+    text_service: TextService,
 ) -> InlineKeyboardMarkup:
     """Subscription detail keyboard.
 
     "Как подключиться" prefers the configured ``howto_url`` (channel post);
     if none is set we fall back to a callback so the keyboard is still valid.
     """
+    howto_label, howto_icon = await text_service.get_button("btn.subscription.howto")
+    extend_label, extend_icon = await text_service.get_button(
+        "btn.subscription.extend"
+    )
+    back_label, back_icon = await text_service.get_button("btn.common.back")
+
     rows: list[list[InlineKeyboardButton]] = []
     if howto_url:
+        # External-link variant — Telegram doesn't allow icon_custom_emoji_id
+        # on URL buttons in older clients, but the field is harmless in newer
+        # ones, so we forward it the same way as callback buttons.
         rows.append(
-            [InlineKeyboardButton(text="📖 Как подключиться", url=howto_url)]
+            [
+                make_button(
+                    howto_label, url=howto_url, icon_custom_emoji_id=howto_icon
+                )
+            ]
         )
     else:
         rows.append(
             [
                 make_button(
-                    "📖 Как подключиться",
+                    howto_label,
                     callback_data=f"sub_howto:{subscription_id}",
+                    icon_custom_emoji_id=howto_icon,
                 )
             ]
         )
     rows.append(
-        [make_button("♻️ Продлить", callback_data=f"extend:{subscription_id}")]
+        [
+            make_button(
+                extend_label,
+                callback_data=f"extend:{subscription_id}",
+                icon_custom_emoji_id=extend_icon,
+            )
+        ]
     )
-    rows.append([make_button("← Назад", callback_data="profile")])
+    rows.append(
+        [
+            make_button(
+                back_label,
+                callback_data="profile",
+                icon_custom_emoji_id=back_icon,
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -246,34 +318,58 @@ def extension_payment_methods_kb(
     )
 
 
-def topup_methods_kb() -> InlineKeyboardMarkup:
+async def topup_methods_kb(text_service: TextService) -> InlineKeyboardMarkup:
     """Top-up payment methods (no Balance — you're topping up the balance!)."""
+    sbp_label, sbp_icon = await text_service.get_button("btn.payment.sbp")
+    crypto_label, crypto_icon = await text_service.get_button("btn.payment.crypto")
+    cb_label, cb_icon = await text_service.get_button("btn.payment.cryptobot")
+    back_label, back_icon = await text_service.get_button("btn.common.back")
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 make_button(
-                    "СБП", callback_data="topup_pay:platega_sbp", color="blue"
+                    sbp_label,
+                    callback_data="topup_pay:platega_sbp",
+                    color="blue",
+                    icon_custom_emoji_id=sbp_icon,
                 ),
                 make_button(
-                    "CryptoBot", callback_data="topup_pay:cryptobot", color="blue"
+                    cb_label,
+                    callback_data="topup_pay:cryptobot",
+                    color="blue",
+                    icon_custom_emoji_id=cb_icon,
                 ),
             ],
             [
                 make_button(
-                    "Криптовалюта",
+                    crypto_label,
                     callback_data="topup_pay:platega_crypto",
                     color="blue",
+                    icon_custom_emoji_id=crypto_icon,
                 )
             ],
-            [make_button("← Назад", callback_data="profile")],
+            [
+                make_button(
+                    back_label,
+                    callback_data="profile",
+                    icon_custom_emoji_id=back_icon,
+                )
+            ],
         ]
     )
 
 
-def topup_back_kb() -> InlineKeyboardMarkup:
+async def topup_back_kb(text_service: TextService) -> InlineKeyboardMarkup:
     """Single back-to-profile button (used while the user types the amount)."""
+    back_label, back_icon = await text_service.get_button("btn.common.back")
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [make_button("← Назад", callback_data="profile")],
+            [
+                make_button(
+                    back_label,
+                    callback_data="profile",
+                    icon_custom_emoji_id=back_icon,
+                )
+            ],
         ]
     )

@@ -236,7 +236,11 @@ async def _handle_free_trial(
         subscription_id=result.get("subscription_id", ""),
     )
     await safe_edit_or_answer(
-        callback, text, reply_markup=key_issued_kb(settings.HOWTO_CONNECT_URL)
+        callback,
+        text,
+        reply_markup=await key_issued_kb(
+            settings.HOWTO_CONNECT_URL, text_service=texts
+        ),
     )
     await bot_log(
         api,
@@ -450,8 +454,11 @@ async def msg_promo_input(
         )
         await message.answer(
             text,
-            reply_markup=payment_methods_kb(
-                base_amount, balance_kop, discount_percent=percent
+            reply_markup=await payment_methods_kb(
+                base_amount,
+                balance_kop,
+                discount_percent=percent,
+                text_service=texts,
             ),
         )
         await bot_log(
@@ -632,5 +639,7 @@ async def cb_promo_skip(
         tariff_name=tariff.get("name", ""),
     )
     await safe_edit_or_answer(
-        callback, text, reply_markup=payment_methods_kb(amount, balance)
+        callback,
+        text,
+        reply_markup=await payment_methods_kb(amount, balance, text_service=texts),
     )

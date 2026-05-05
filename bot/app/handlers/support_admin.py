@@ -171,7 +171,7 @@ async def _reset_user_after_admin_close(
             user_tg_id,
             menu_text,
             parse_mode="HTML",
-            reply_markup=main_menu_kb(),
+            reply_markup=await main_menu_kb(texts),
         )
     except (TelegramForbiddenError, TelegramBadRequest) as exc:
         log.warning(

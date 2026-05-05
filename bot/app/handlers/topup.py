@@ -53,7 +53,7 @@ async def cb_topup_start(
     await state.set_state(TopupStates.amount_input)
 
     text = await texts.get("topup_amount_prompt", min_amount=_MIN_RUB)
-    await safe_edit_or_answer(callback, text, reply_markup=topup_back_kb())
+    await safe_edit_or_answer(callback, text, reply_markup=await topup_back_kb(texts))
 
 
 @router.message(TopupStates.amount_input)
@@ -73,12 +73,12 @@ async def msg_topup_amount(
         rub = int(float(raw))
     except (TypeError, ValueError):
         text = await texts.get("topup_invalid_amount", min_amount=_MIN_RUB)
-        await message.answer(text, reply_markup=topup_back_kb())
+        await message.answer(text, reply_markup=await topup_back_kb(texts))
         return
 
     if rub < _MIN_RUB:
         text = await texts.get("topup_min_amount", min_amount=_MIN_RUB)
-        await message.answer(text, reply_markup=topup_back_kb())
+        await message.answer(text, reply_markup=await topup_back_kb(texts))
         return
 
     amount_kopecks = rub * 100
@@ -86,7 +86,7 @@ async def msg_topup_amount(
     await state.set_state(TopupStates.payment_method)
 
     text = await texts.get("topup_method_prompt", amount=rub)
-    await message.answer(text, reply_markup=topup_methods_kb())
+    await message.answer(text, reply_markup=await topup_methods_kb(texts))
 
     await bot_log(
         api,
@@ -182,7 +182,7 @@ async def cb_topup_pay(
         provider=provider,
     )
     await safe_edit_or_answer(
-        callback, text, reply_markup=payment_link_kb(payment_url)
+        callback, text, reply_markup=await payment_link_kb(payment_url, text_service=texts)
     )
 
     # Top-up doesn't have an "awaiting" FSM — clear and let the worker take

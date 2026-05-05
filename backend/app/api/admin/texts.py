@@ -14,6 +14,7 @@ from app.core.logging import get_logger
 from app.db.models.text import Text as TextModel
 from app.deps import AdminDep, DBSession, RedisDep
 from app.schemas.admin_panel.text import (
+    AdminButtonValidatedPatch,
     AdminText,
     AdminTextPatch,
     AdminTextsPage,
@@ -67,6 +68,17 @@ async def patch_text(
             error_code="text_not_found",
         )
 
+    # For button-kind rows, re-validate the same payload with the stricter
+    # "no HTML in label" rule so we surface a 422 before a Telegram surprise.
+    if row.kind == "button":
+        try:
+            AdminButtonValidatedPatch(**payload.model_dump(exclude_unset=True))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+
     # Use Pydantic's exclude_unset so we can tell "field omitted" (no change)
     # from "field set to null" (clear). This lets the operator clear the
     # attachment by sending media_file_id=null + media_kind=null.
@@ -76,6 +88,10 @@ async def patch_text(
         row.value_html = fields["value_html"]
     if "description" in fields:
         row.description = fields["description"]
+    if "icon_custom_emoji_id" in fields:
+        # Buttons may have a premium-emoji icon. For messages this column is
+        # always null but allowing the explicit null-set keeps the API uniform.
+        row.icon_custom_emoji_id = fields["icon_custom_emoji_id"]
 
     # Media: must travel together. Allow both null (clear) or both set (apply).
     has_file = "media_file_id" in fields
@@ -105,8 +121,10 @@ async def patch_text(
         "text.update",
         extra={
             "key": key,
+            "kind": row.kind,
             "media_file_id": row.media_file_id,
             "media_kind": row.media_kind,
+            "icon_custom_emoji_id": row.icon_custom_emoji_id,
         },
     )
     await session.commit()

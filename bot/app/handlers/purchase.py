@@ -152,7 +152,7 @@ async def _pay_with_balance(
         amount=int(result.get("amount_kopecks", 0)) // 100,
     )
     await safe_edit_or_answer(
-        callback, text, reply_markup=key_issued_kb(settings.HOWTO_CONNECT_URL)
+        callback, text, reply_markup=await key_issued_kb(settings.HOWTO_CONNECT_URL, text_service=texts)
     )
     await state.clear()
     await bot_log(
@@ -292,7 +292,7 @@ async def _pay_with_provider(
         provider=provider,
     )
     await safe_edit_or_answer(
-        callback, text, reply_markup=payment_link_kb(payment_url)
+        callback, text, reply_markup=await payment_link_kb(payment_url, text_service=texts)
     )
 
     await state.update_data(payment_id=payment_id, provider=provider)

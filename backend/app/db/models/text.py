@@ -24,6 +24,20 @@ class Text(IntPK, Base):
     media_file_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     media_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
+    # Discriminator: ``"message"`` (default) — ``value_html`` is rich HTML
+    # rendered into a Telegram message and edited via TipTap in the admin UI.
+    # ``"button"`` — ``value_html`` is the plain label string of an inline
+    # keyboard button (Telegram does not allow HTML or entities in
+    # ``InlineKeyboardButton.text``), and ``icon_custom_emoji_id`` may carry
+    # a Telegram custom-emoji document id for the optional premium-emoji icon
+    # rendered to the left of the label.
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="message"
+    )
+    icon_custom_emoji_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

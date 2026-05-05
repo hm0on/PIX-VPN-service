@@ -151,7 +151,7 @@ class SubscriptionCheckMiddleware(BaseMiddleware):
 
     async def _prompt_subscription(self, source: Message | CallbackQuery) -> None:
         text = await self._texts.get("channel_subscription_required")
-        kb = subscription_check_kb(self._channel_url)
+        kb = await subscription_check_kb(self._channel_url, self._texts)
 
         if isinstance(source, Message):
             await source.answer(text, parse_mode="HTML", reply_markup=kb)

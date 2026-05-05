@@ -17,9 +17,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { TipTapEditor } from '@/components/editor/TipTapEditor';
 import { cn } from '@/lib/utils';
-import type { MediaKind } from '@/types';
+import type { MediaKind, TextKind } from '@/types';
 
 const MEDIA_KINDS: MediaKind[] = ['photo', 'video', 'animation'];
+
+// Filter chip values. 'all' is the default — admins land here looking for
+// a key by name without caring whether it's a message or button. The two
+// type-specific options are useful when bulk-renaming buttons (a Phase-1
+// activity) or auditing message copy.
+type KindFilter = 'all' | TextKind;
 
 function formatDate(value: string | null): string {
   if (!value) return '—';
@@ -34,7 +40,9 @@ export default function BotTexts() {
   const qc = useQueryClient();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [draft, setDraft] = useState<string>('');
+  const [iconEmojiId, setIconEmojiId] = useState<string>('');
   const [mediaFileId, setMediaFileId] = useState<string>('');
   const [mediaKind, setMediaKind] = useState<MediaKind>('photo');
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -44,13 +52,18 @@ export default function BotTexts() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return texts;
-    return texts.filter(
-      (t) =>
+    return texts.filter((t) => {
+      if (kindFilter !== 'all' && t.kind !== kindFilter) return false;
+      if (!q) return true;
+      return (
         t.key.toLowerCase().includes(q) ||
-        (t.description ?? '').toLowerCase().includes(q)
-    );
-  }, [texts, search]);
+        (t.description ?? '').toLowerCase().includes(q) ||
+        // Search the label too — for buttons this is the visible text, so
+        // typing "Каталог" should surface btn.main_menu.catalog.
+        (t.value_html ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [texts, search, kindFilter]);
 
   const selected = useMemo(
     () => texts.find((t) => t.key === selectedKey) ?? null,
@@ -59,24 +72,34 @@ export default function BotTexts() {
 
   useEffect(() => {
     setDraft(selected?.value_html ?? '');
+    setIconEmojiId(selected?.icon_custom_emoji_id ?? '');
     setMediaFileId(selected?.media_file_id ?? '');
     setMediaKind((selected?.media_kind as MediaKind | null) ?? 'photo');
-  }, [selected?.key, selected?.value_html, selected?.media_file_id, selected?.media_kind]);
+  }, [
+    selected?.key,
+    selected?.value_html,
+    selected?.icon_custom_emoji_id,
+    selected?.media_file_id,
+    selected?.media_kind,
+  ]);
 
   const updateMut = useMutation({
     mutationFn: ({
       key,
       value_html,
+      icon_custom_emoji_id,
       media_file_id,
       media_kind,
     }: {
       key: string;
       value_html: string;
+      icon_custom_emoji_id: string | null;
       media_file_id: string | null;
       media_kind: MediaKind | null;
     }) =>
       updateText(key, {
         value_html,
+        icon_custom_emoji_id,
         media_file_id,
         media_kind,
       }),
@@ -89,25 +112,34 @@ export default function BotTexts() {
 
   const handleSave = () => {
     if (!selected) return;
+    const isButton = selected.kind === 'button';
+    // For button rows we never send media_* — buttons can't carry an
+    // attachment. The icon-id pair always travels (null clears it).
     const trimmedFileId = mediaFileId.trim();
-    // media_file_id and media_kind must travel as a pair (both filled or both null)
-    const fileIdPayload = trimmedFileId.length > 0 ? trimmedFileId : null;
-    const kindPayload = trimmedFileId.length > 0 ? mediaKind : null;
+    const fileIdPayload = !isButton && trimmedFileId.length > 0 ? trimmedFileId : null;
+    const kindPayload = !isButton && trimmedFileId.length > 0 ? mediaKind : null;
+    const trimmedIcon = iconEmojiId.trim();
+    const iconPayload = isButton && trimmedIcon.length > 0 ? trimmedIcon : null;
+
     updateMut.mutate({
       key: selected.key,
       value_html: draft,
+      icon_custom_emoji_id: iconPayload,
       media_file_id: fileIdPayload,
       media_kind: kindPayload,
     });
   };
+
+  const isButton = selected?.kind === 'button';
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Тексты бота</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Сообщения, которые бот шлёт юзерам. Можно прикрепить картинку/видео/гифку
-          — бот пришлёт её вместе с текстом. Изменения применяются мгновенно.
+          Сообщения, которые бот шлёт юзерам, и подписи кнопок в инлайн-клавиатурах.
+          Сообщения редактируются как HTML, кнопки — как обычная строка с опциональным
+          премиум-эмодзи слева. Изменения применяются мгновенно.
         </p>
       </div>
 
@@ -117,12 +149,13 @@ export default function BotTexts() {
             <CardTitle className="text-base">Ключи</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <KindFilterTabs value={kindFilter} onChange={setKindFilter} />
             <div className="relative">
               <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Поиск по ключу или описанию"
+                placeholder="Поиск по ключу, описанию или тексту"
                 className="pl-8"
               />
             </div>
@@ -144,12 +177,21 @@ export default function BotTexts() {
                     >
                       <div className="flex items-center gap-1.5 font-mono text-xs">
                         {t.key}
+                        <KindBadge kind={t.kind} />
                         {t.media_file_id ? (
                           <span
                             title={`media: ${t.media_kind ?? 'photo'}`}
                             className="rounded bg-primary/15 px-1 text-[9px] uppercase tracking-wider text-primary"
                           >
                             {t.media_kind ?? 'media'}
+                          </span>
+                        ) : null}
+                        {t.icon_custom_emoji_id ? (
+                          <span
+                            title={`icon emoji id: ${t.icon_custom_emoji_id}`}
+                            className="rounded bg-amber-500/15 px-1 text-[9px] uppercase tracking-wider text-amber-600 dark:text-amber-400"
+                          >
+                            emoji
                           </span>
                         ) : null}
                       </div>
@@ -177,8 +219,9 @@ export default function BotTexts() {
         <Card>
           <CardHeader className="flex flex-row items-start justify-between space-y-0">
             <div className="space-y-1">
-              <CardTitle className="text-base">
+              <CardTitle className="flex items-center gap-2 text-base">
                 {selected ? selected.key : 'Выберите ключ'}
+                {selected ? <KindBadge kind={selected.kind} /> : null}
               </CardTitle>
               {selected?.description && (
                 <p className="text-xs text-muted-foreground">{selected.description}</p>
@@ -186,15 +229,17 @@ export default function BotTexts() {
             </div>
             {selected && (
               <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPreviewOpen(true)}
-                >
-                  <Eye className="h-4 w-4" />
-                  Превью
-                </Button>
+                {!isButton && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPreviewOpen(true)}
+                  >
+                    <Eye className="h-4 w-4" />
+                    Превью
+                  </Button>
+                )}
                 <Button
                   type="button"
                   size="sm"
@@ -212,7 +257,18 @@ export default function BotTexts() {
             )}
           </CardHeader>
           <CardContent className="space-y-4">
-            {selected ? (
+            {!selected ? (
+              <p className="text-sm text-muted-foreground">
+                Выберите ключ слева, чтобы редактировать.
+              </p>
+            ) : isButton ? (
+              <ButtonEditor
+                label={draft}
+                onLabelChange={setDraft}
+                iconEmojiId={iconEmojiId}
+                onIconEmojiIdChange={setIconEmojiId}
+              />
+            ) : (
               <>
                 <TipTapEditor value={draft} onChange={setDraft} minHeight="300px" />
                 <MediaAttachment
@@ -222,10 +278,6 @@ export default function BotTexts() {
                   onKindChange={setMediaKind}
                 />
               </>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Выберите ключ слева, чтобы редактировать.
-              </p>
             )}
           </CardContent>
         </Card>
@@ -237,6 +289,127 @@ export default function BotTexts() {
         html={draft}
         title={selected?.key ?? null}
       />
+    </div>
+  );
+}
+
+interface KindBadgeProps {
+  kind: TextKind;
+}
+
+function KindBadge({ kind }: KindBadgeProps) {
+  if (kind === 'button') {
+    return (
+      <span className="rounded bg-emerald-500/15 px-1 text-[9px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+        button
+      </span>
+    );
+  }
+  return (
+    <span className="rounded bg-blue-500/15 px-1 text-[9px] uppercase tracking-wider text-blue-600 dark:text-blue-400">
+      msg
+    </span>
+  );
+}
+
+interface KindFilterProps {
+  value: KindFilter;
+  onChange: (v: KindFilter) => void;
+}
+
+function KindFilterTabs({ value, onChange }: KindFilterProps) {
+  const opts: Array<{ id: KindFilter; label: string }> = [
+    { id: 'all', label: 'Все' },
+    { id: 'message', label: 'Сообщения' },
+    { id: 'button', label: 'Кнопки' },
+  ];
+  return (
+    <div className="flex gap-1 rounded-md border border-border bg-muted/40 p-1">
+      {opts.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className={cn(
+            'flex-1 rounded px-2 py-1 text-xs transition-colors hover:bg-accent',
+            value === o.id && 'bg-background font-medium shadow-sm'
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+interface ButtonEditorProps {
+  label: string;
+  onLabelChange: (v: string) => void;
+  iconEmojiId: string;
+  onIconEmojiIdChange: (v: string) => void;
+}
+
+function ButtonEditor({
+  label,
+  onLabelChange,
+  iconEmojiId,
+  onIconEmojiIdChange,
+}: ButtonEditorProps) {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Текст кнопки</label>
+        <Input
+          value={label}
+          onChange={(e) => onLabelChange(e.target.value)}
+          placeholder="Например: Каталог"
+          maxLength={64}
+        />
+        <p className="text-xs text-muted-foreground">
+          Telegram отображает кнопку как обычный текст без HTML, эмодзи и форматирования.
+          Стандартные эмодзи (🚀, ✅) работают, кастомные премиум-эмодзи нужно прикрепить
+          через поле ниже.
+        </p>
+      </div>
+
+      <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium">Премиум-эмодзи (опционально)</h3>
+            <p className="text-xs text-muted-foreground">
+              ID кастомного эмодзи Telegram, который будет показан слева от текста кнопки.
+              Узнать ID: переслать сообщение с эмодзи в{' '}
+              <a
+                href="https://t.me/TestEmojiBot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                @TestEmojiBot
+              </a>{' '}
+              или через Bot API <code>getCustomEmojiStickers</code>.
+            </p>
+          </div>
+          {iconEmojiId.trim().length > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onIconEmojiIdChange('')}
+              title="Очистить эмодзи"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+        <Input
+          value={iconEmojiId}
+          onChange={(e) => onIconEmojiIdChange(e.target.value)}
+          placeholder="Document ID кастомного эмодзи (напр. 5368324170671202286)"
+          className="font-mono text-xs"
+          maxLength={64}
+        />
+      </div>
     </div>
   );
 }

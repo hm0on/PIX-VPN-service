@@ -160,7 +160,9 @@ async def cb_support(
 
     if ticket is None:
         text = await texts.get("support_no_active_ticket")
-        await safe_edit_or_answer(callback, text, reply_markup=support_no_ticket_kb())
+        await safe_edit_or_answer(
+            callback, text, reply_markup=await support_no_ticket_kb(texts)
+        )
         return
 
     await _enter_active_ticket(
@@ -204,7 +206,9 @@ async def cb_idea(
 
     if ticket is None:
         text = await texts.get("idea_no_active_ticket")
-        await safe_edit_or_answer(callback, text, reply_markup=idea_no_ticket_kb())
+        await safe_edit_or_answer(
+            callback, text, reply_markup=await idea_no_ticket_kb(texts)
+        )
         return
 
     # If the user already has any open ticket (kind doesn't matter — backend
@@ -366,7 +370,7 @@ async def msg_close_button(
     # Keep the prompt minimal — the inline confirm carries the action.
     await message.answer(
         f"{prompt}\n\nЗакрыть тикет?",
-        reply_markup=ticket_close_confirm_kb(),
+        reply_markup=await ticket_close_confirm_kb(texts),
     )
     await state.set_state(TicketStates.awaiting_close_confirm)
     # Silence unused-var hint — we render via ``prompt`` above.

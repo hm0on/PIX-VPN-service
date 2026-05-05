@@ -45,7 +45,7 @@ async def _show_main_menu(
     keeps the menu identical regardless of whether media is attached.
     """
     entry = await texts.get_entry("main_menu")
-    kb = main_menu_kb()
+    kb = await main_menu_kb(texts)
 
     if isinstance(target, Message):
         await send_text_or_media(

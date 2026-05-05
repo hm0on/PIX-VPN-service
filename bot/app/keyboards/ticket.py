@@ -22,6 +22,10 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
+from app.utils.texts import TextService, _BUTTON_FALLBACKS
+
+from app.utils.texts import TextService, _BUTTON_FALLBACKS
+
 # Public callback data constants — handlers and tests reference these so we
 # only have to spell them in one place.
 CB_TICKET_CREATE_SUPPORT = "ticket:create:support"
@@ -34,38 +38,86 @@ CB_TICKET_CLOSE_NO = "ticket:close:no"
 CLOSE_TICKET_BUTTON_TEXT = "Закрыть тикет"
 
 
-def support_no_ticket_kb() -> InlineKeyboardMarkup:
+async def support_no_ticket_kb(
+    text_service: TextService,
+) -> InlineKeyboardMarkup:
     """Inline keyboard for the "Поддержка" card when no open ticket exists."""
+    create_label, create_icon = await text_service.get_button(
+        "btn.ticket.create_support"
+    )
+    back_label, back_icon = await text_service.get_button("btn.common.back")
+    create_extra: dict[str, object] = (
+        {"icon_custom_emoji_id": create_icon} if create_icon else {}
+    )
+    back_extra: dict[str, object] = (
+        {"icon_custom_emoji_id": back_icon} if back_icon else {}
+    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Создать тикет",
+                    text=create_label,
                     callback_data=CB_TICKET_CREATE_SUPPORT,
+                    **create_extra,  # type: ignore[arg-type]
                 )
             ],
-            [InlineKeyboardButton(text="← Назад", callback_data="main_menu")],
+            [
+                InlineKeyboardButton(
+                    text=back_label,
+                    callback_data="main_menu",
+                    **back_extra,  # type: ignore[arg-type]
+                )
+            ],
         ]
     )
 
 
-def idea_no_ticket_kb() -> InlineKeyboardMarkup:
+async def idea_no_ticket_kb(
+    text_service: TextService,
+) -> InlineKeyboardMarkup:
     """Inline keyboard for the "Предложить идею" card when no open ticket."""
+    create_label, create_icon = await text_service.get_button(
+        "btn.ticket.create_idea"
+    )
+    back_label, back_icon = await text_service.get_button("btn.common.back")
+    create_extra: dict[str, object] = (
+        {"icon_custom_emoji_id": create_icon} if create_icon else {}
+    )
+    back_extra: dict[str, object] = (
+        {"icon_custom_emoji_id": back_icon} if back_icon else {}
+    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Предложить идею",
+                    text=create_label,
                     callback_data=CB_TICKET_CREATE_IDEA,
+                    **create_extra,  # type: ignore[arg-type]
                 )
             ],
-            [InlineKeyboardButton(text="← Назад", callback_data="main_menu")],
+            [
+                InlineKeyboardButton(
+                    text=back_label,
+                    callback_data="main_menu",
+                    **back_extra,  # type: ignore[arg-type]
+                )
+            ],
         ]
     )
 
 
 def ticket_active_reply_kb() -> ReplyKeyboardMarkup:
-    """Persistent reply keyboard mounted on the user while a ticket is open."""
+    """Persistent reply keyboard mounted on the user while a ticket is open.
+
+    Stays sync — :class:`ReplyKeyboardMarkup` is a different surface than
+    inline buttons (it shows up in the user's keyboard area, not under the
+    message), and this single label is also matched by an aiogram filter on
+    the literal :data:`CLOSE_TICKET_BUTTON_TEXT`. Renaming it via the texts
+    editor would silently break that filter, so we deliberately leave this
+    one hardcoded. If you need to localise it, also update
+    :data:`CLOSE_TICKET_BUTTON_TEXT` and the filter in
+    ``handlers/support.py``.
+    """
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=CLOSE_TICKET_BUTTON_TEXT)]],
         resize_keyboard=True,
@@ -73,20 +125,51 @@ def ticket_active_reply_kb() -> ReplyKeyboardMarkup:
     )
 
 
-def ticket_close_confirm_kb() -> InlineKeyboardMarkup:
+async def ticket_close_confirm_kb(
+    text_service: TextService,
+) -> InlineKeyboardMarkup:
     """Inline confirm/cancel keyboard for the close-ticket flow."""
+    yes_label, yes_icon = await text_service.get_button("btn.ticket.close_yes")
+    no_label, no_icon = await text_service.get_button("btn.ticket.close_no")
+    yes_extra: dict[str, object] = (
+        {"icon_custom_emoji_id": yes_icon} if yes_icon else {}
+    )
+    no_extra: dict[str, object] = (
+        {"icon_custom_emoji_id": no_icon} if no_icon else {}
+    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Да, закрыть", callback_data=CB_TICKET_CLOSE_YES
+                    text=yes_label,
+                    callback_data=CB_TICKET_CLOSE_YES,
+                    **yes_extra,  # type: ignore[arg-type]
                 ),
                 InlineKeyboardButton(
-                    text="Отмена", callback_data=CB_TICKET_CLOSE_NO
+                    text=no_label,
+                    callback_data=CB_TICKET_CLOSE_NO,
+                    **no_extra,  # type: ignore[arg-type]
                 ),
             ]
         ]
     )
+
+
+# ``_BUTTON_FALLBACKS`` is re-exported so other keyboards files can pull
+# the same plain-string defaults without re-importing the private name.
+__all__ = [
+    "CB_TICKET_CREATE_SUPPORT",
+    "CB_TICKET_CREATE_IDEA",
+    "CB_TICKET_CLOSE_YES",
+    "CB_TICKET_CLOSE_NO",
+    "CLOSE_TICKET_BUTTON_TEXT",
+    "support_no_ticket_kb",
+    "idea_no_ticket_kb",
+    "ticket_active_reply_kb",
+    "ticket_close_confirm_kb",
+    "remove_kb",
+    "_BUTTON_FALLBACKS",
+]
 
 
 def remove_kb() -> ReplyKeyboardRemove:
