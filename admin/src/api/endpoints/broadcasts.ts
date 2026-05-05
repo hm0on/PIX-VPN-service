@@ -10,13 +10,24 @@ import type {
 
 export interface BroadcastListParams {
   status?: string;
-  limit?: number;
-  offset?: number;
+  page?: number;
+  page_size?: number;
+}
+
+interface BroadcastListResponse {
+  items: Broadcast[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export async function listBroadcasts(params: BroadcastListParams = {}): Promise<Broadcast[]> {
-  const { data } = await apiClient.get<Broadcast[]>('/admin/broadcasts', { params });
-  return data;
+  // Backend returns AdminBroadcastsPage{items, total, page, page_size}.
+  // The list UI doesn't paginate yet; unwrap items here.
+  const { data } = await apiClient.get<BroadcastListResponse>('/admin/broadcasts', {
+    params: { page_size: 200, ...params },
+  });
+  return data.items ?? [];
 }
 
 export async function getBroadcast(id: number): Promise<Broadcast> {
@@ -78,9 +89,18 @@ export async function testBroadcast(
   return data;
 }
 
+interface RecipientsResponse {
+  items: BroadcastRecipient[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export async function getRecipients(id: number): Promise<BroadcastRecipient[]> {
-  const { data } = await apiClient.get<BroadcastRecipient[]>(
-    `/admin/broadcasts/${id}/recipients`
+  // Backend returns AdminBroadcastRecipientsPage{items, total, page, page_size}.
+  const { data } = await apiClient.get<RecipientsResponse>(
+    `/admin/broadcasts/${id}/recipients`,
+    { params: { page_size: 200 } }
   );
-  return data;
+  return data.items ?? [];
 }

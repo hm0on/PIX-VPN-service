@@ -2,6 +2,18 @@ import { apiClient } from '@/api/client';
 import { useAuthStore } from '@/stores/authStore';
 import type { EventLog, EventLogsFilter, TechLog, TechLogsFilter } from '@/types';
 
+interface EventsPage {
+  items: EventLog[];
+  next_before_id: number | null;
+  total: number | null;
+}
+
+interface TechPage {
+  items: TechLog[];
+  next_before_id: number | null;
+  total: number | null;
+}
+
 export async function listEvents(filter: EventLogsFilter = {}): Promise<EventLog[]> {
   const params: Record<string, unknown> = { ...filter };
   if (filter.level && filter.level.length > 0) {
@@ -9,8 +21,9 @@ export async function listEvents(filter: EventLogsFilter = {}): Promise<EventLog
   } else {
     delete params.level;
   }
-  const { data } = await apiClient.get<EventLog[]>('/admin/logs/events', { params });
-  return data;
+  // Backend returns AdminLogsPage{items, next_before_id, total}.
+  const { data } = await apiClient.get<EventsPage>('/admin/logs/events', { params });
+  return data.items ?? [];
 }
 
 /**
@@ -29,8 +42,9 @@ export function eventsStream(): EventSource | null {
 }
 
 export async function listTech(filter: TechLogsFilter = {}): Promise<TechLog[]> {
-  const { data } = await apiClient.get<TechLog[]>('/admin/logs/tech', { params: filter });
-  return data;
+  // Backend returns AdminTechLogsPage{items, next_before_id, total}.
+  const { data } = await apiClient.get<TechPage>('/admin/logs/tech', { params: filter });
+  return data.items ?? [];
 }
 
 export async function traceChain(traceId: string): Promise<TechLog[]> {
