@@ -23,9 +23,82 @@ from app.utils.logging import (
     bot_log,
     get_logger,
 )
-from app.utils.texts import TextService
+from app.utils.texts import TextEntry, TextService, send_text_or_media
 
 log = get_logger("bot.handlers.common")
+
+
+async def safe_edit_or_send_media(
+    target: Message | CallbackQuery,
+    entry: TextEntry,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    """Render ``entry`` to ``target`` honouring its optional media attachment.
+
+    This is the media-aware sibling of :func:`safe_edit_or_answer`. Use it
+    whenever the operator might have attached a photo/video/animation to the
+    text key in the admin panel — otherwise the file_id sits in the database
+    doing nothing because plain ``edit_text`` ignores it.
+
+    Behaviour:
+
+    - ``Message`` target → :func:`send_text_or_media` (the usual reply path).
+    - ``CallbackQuery`` target *with* media → ``edit_text`` cannot turn a
+      text-only message into a media one (Telegram refuses), so we delete
+      the source message and send a fresh one. This matches the pattern in
+      ``handlers.start._show_main_menu``.
+    - ``CallbackQuery`` target *without* media → keep the nicer in-place
+      ``edit_text`` UX, falling back to ``answer`` on the inevitable
+      ``TelegramBadRequest`` (e.g. when the source already has a caption).
+
+    The callback itself is always ack'd so the spinner stops.
+    """
+    if isinstance(target, Message):
+        await send_text_or_media(
+            chat_id=target.chat.id,
+            entry=entry,
+            bot=target.bot,
+            reply_markup=reply_markup,
+        )
+        return
+
+    # CallbackQuery branch — always ack.
+    try:
+        await target.answer()
+    except TelegramBadRequest:
+        pass
+
+    if target.message is None:
+        return
+
+    chat_id = target.message.chat.id
+    bot = target.message.bot
+
+    if entry.media_file_id:
+        # Text→media or media→media transitions: delete the old message and
+        # send a fresh one. ``edit_text`` cannot toggle the message kind.
+        try:
+            await target.message.delete()
+        except TelegramBadRequest:
+            pass
+        await send_text_or_media(
+            chat_id=chat_id,
+            entry=entry,
+            bot=bot,
+            reply_markup=reply_markup,
+        )
+        return
+
+    # Plain text — keep the in-place edit for snappy UX.
+    try:
+        await target.message.edit_text(
+            entry.value_html, reply_markup=reply_markup
+        )
+    except TelegramBadRequest:
+        await target.message.answer(
+            entry.value_html, reply_markup=reply_markup
+        )
 
 
 async def safe_edit_or_answer(

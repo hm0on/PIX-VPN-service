@@ -22,6 +22,7 @@ from app.handlers._common import (
     report_backend_unavailable,
     report_unexpected,
     safe_edit_or_answer,
+    safe_edit_or_send_media,
 )
 from app.keyboards.catalog import (
     apply_discount,
@@ -164,13 +165,16 @@ async def cb_profile(
     }
     if has_active:
         fmt["subscriptions"] = _render_subs_summary(active_subs)
-        text = await texts.get("profile_header", **fmt)
+        entry = await texts.get_entry("profile_header", **fmt)
     else:
-        text = await texts.get("profile_no_subscriptions", **fmt)
+        entry = await texts.get_entry("profile_no_subscriptions", **fmt)
 
-    await safe_edit_or_answer(
+    # Use the media-aware helper so an admin-attached photo / video on
+    # profile_header / profile_no_subscriptions actually shows up in the
+    # bot — plain ``safe_edit_or_answer`` ignores ``media_file_id``.
+    await safe_edit_or_send_media(
         callback,
-        text,
+        entry,
         reply_markup=await profile_kb(active_subs, has_active, texts),
     )
 
@@ -222,7 +226,7 @@ async def cb_subscription(
         )
         return
 
-    text = await texts.get(
+    entry = await texts.get_entry(
         "subscription_detail",
         tariff_name=sub.get("tariff_name", "—"),
         devices=sub.get("devices", "—"),
@@ -233,9 +237,10 @@ async def cb_subscription(
         status=sub.get("status", ""),
         subscription_id=subscription_id,
     )
-    await safe_edit_or_answer(
+    # Media-aware: surface admin-attached cover for the subscription card.
+    await safe_edit_or_send_media(
         callback,
-        text,
+        entry,
         reply_markup=await subscription_detail_kb(
             subscription_id,
             howto_url=settings.HOWTO_CONNECT_URL,

@@ -6,18 +6,18 @@ import re
 from typing import Any
 
 from aiogram import Bot, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.types import CallbackQuery, Message
 from redis.asyncio import Redis
 
 from app.api_client import BackendClient
 from app.config import Settings
+from app.handlers._common import safe_edit_or_send_media
 from app.keyboards.main_menu import main_menu_kb
 from app.middlewares.subscription_check import SUBSCRIBED_STATUSES, sub_cache_key
 from app.utils.errors import BackendUnavailableError
 from app.utils.logging import LOG_LEVEL_INFO, bot_log, get_logger
-from app.utils.texts import TextService, send_text_or_media, send_text_or_media
+from app.utils.texts import TextService
 
 # ``/start`` deep-link payloads we recognise. Backend ultimately decides
 # whether ``ref_<n>`` is a valid referrer and whether to attribute it
@@ -35,55 +35,16 @@ async def _show_main_menu(
 ) -> None:
     """Render the main menu.
 
-    Uses ``send_text_or_media`` so that if the operator has attached a
-    ``media_file_id`` to the ``main_menu`` text (via admin panel), users see
-    the cover image with the menu as a caption instead of plain text.
-
-    For callback flows we have to *delete* the previous message and send a
-    fresh one rather than ``edit_text``: a media message cannot be turned
-    into a text-only one (and vice versa) with edit_*. Falling back cleanly
-    keeps the menu identical regardless of whether media is attached.
+    Uses :func:`safe_edit_or_send_media` so that if the operator has
+    attached a ``media_file_id`` to the ``main_menu`` text via the admin
+    panel, users see the cover image with the menu as a caption instead of
+    plain text. The helper handles the text↔media transition (which
+    ``edit_text`` cannot do on its own) by deleting the source message and
+    sending a fresh one when media is involved.
     """
     entry = await texts.get_entry("main_menu")
     kb = await main_menu_kb(texts)
-
-    if isinstance(target, Message):
-        await send_text_or_media(
-            chat_id=target.chat.id,
-            entry=entry,
-            bot=target.bot,
-            reply_markup=kb,
-        )
-        return
-
-    # CallbackQuery branch.
-    if target.message is None:
-        await target.answer()
-        return
-
-    chat_id = target.message.chat.id
-    bot = target.message.bot
-
-    if entry.media_file_id:
-        # Text→media or media→media transitions: delete the old, send fresh.
-        try:
-            await target.message.delete()
-        except TelegramBadRequest:
-            pass
-        await send_text_or_media(
-            chat_id=chat_id,
-            entry=entry,
-            bot=bot,
-            reply_markup=kb,
-        )
-    else:
-        # Plain-text menu — still try to edit in place for nicer UX.
-        try:
-            await target.message.edit_text(entry.value_html, reply_markup=kb)
-        except TelegramBadRequest:
-            await target.message.answer(entry.value_html, reply_markup=kb)
-
-    await target.answer()
+    await safe_edit_or_send_media(target, entry, reply_markup=kb)
 
 
 @router.message(CommandStart())
