@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+from aiogram.enums import ButtonStyle
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+_COLOR_TO_STYLE: dict[str, ButtonStyle] = {
+    "blue": ButtonStyle.PRIMARY,
+    "primary": ButtonStyle.PRIMARY,
+    "green": ButtonStyle.SUCCESS,
+    "success": ButtonStyle.SUCCESS,
+    "red": ButtonStyle.DANGER,
+    "danger": ButtonStyle.DANGER,
+}
 
 
 def make_button(
@@ -10,26 +20,32 @@ def make_button(
     *,
     callback_data: str | None = None,
     url: str | None = None,
-    color: str | None = None,  # noqa: ARG001 — reserved for Bot API additions
+    style: ButtonStyle | None = None,
+    color: str | None = None,
 ) -> InlineKeyboardButton:
     """Build an InlineKeyboardButton.
 
-    TODO(Stage 1+): Telegram does **not** support coloring inline buttons via
-    Bot API yet (KeyboardButtonColor exists only for *reply* keyboards in 7.10+).
-    The ``color`` argument is kept here so call-sites can describe intent
-    declaratively, and we will plug it in once aiogram exposes the field.
+    Since Bot API 9.4 (aiogram 3.25+), inline buttons support a ``style``
+    parameter (``ButtonStyle.PRIMARY`` / ``SUCCESS`` / ``DANGER``). Older
+    Telegram clients render them as default — no error, just no color.
+
+    ``color`` is a backwards-compatible string alias ("blue" / "green" / "red")
+    used by older call-sites; it maps to the corresponding ``ButtonStyle``.
+    Explicit ``style=`` always wins.
     """
+    if style is None and color is not None:
+        style = _COLOR_TO_STYLE.get(color.lower())
     if callback_data is not None:
-        return InlineKeyboardButton(text=text, callback_data=callback_data)
+        return InlineKeyboardButton(text=text, callback_data=callback_data, style=style)
     if url is not None:
-        return InlineKeyboardButton(text=text, url=url)
+        return InlineKeyboardButton(text=text, url=url, style=style)
     raise ValueError("make_button requires either callback_data or url")
 
 
 def main_menu_kb() -> InlineKeyboardMarkup:
     """Layout from `questions.md` → "Как я вижу визуал" / Main menu.
 
-    Row 1: [Каталог 🟦] [Профиль]
+    Row 1: [Каталог (синяя)] [Профиль]
     Row 2: [Поддержка] [Промокод]
     Row 3: [Предложить идею]
     Row 4: [О проекте]
@@ -37,8 +53,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                # 🟦 hints at the future "blue" highlight; visual color TBD by Bot API.
-                make_button("Каталог 🟦", callback_data="catalog", color="blue"),
+                make_button("Каталог", callback_data="catalog", style=ButtonStyle.PRIMARY),
                 make_button("Профиль", callback_data="profile"),
             ],
             [
