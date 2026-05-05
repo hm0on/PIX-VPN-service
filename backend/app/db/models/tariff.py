@@ -1,0 +1,61 @@
+"""Tariff and TariffDuration ORM models."""
+
+from __future__ import annotations
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base, IntPK
+
+
+class Tariff(IntPK, Base):
+    __tablename__ = "tariffs"
+
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    description_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    devices: Mapped[int] = mapped_column(Integer, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true", default=True
+    )
+    is_free_trial: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
+    free_trial_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    durations: Mapped[list["TariffDuration"]] = relationship(
+        back_populates="tariff",
+        cascade="all, delete-orphan",
+        order_by="TariffDuration.days",
+    )
+
+
+class TariffDuration(IntPK, Base):
+    __tablename__ = "tariff_durations"
+
+    tariff_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tariffs.id", ondelete="CASCADE"), nullable=False
+    )
+    days: Mapped[int] = mapped_column(Integer, nullable=False)
+    price_kopecks: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    is_hot: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true", default=True
+    )
+
+    tariff: Mapped[Tariff] = relationship(back_populates="durations")
+
+    __table_args__ = (
+        UniqueConstraint("tariff_id", "days", name="uq_tariff_durations_tariff_days"),
+    )

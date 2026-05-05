@@ -1,0 +1,77 @@
+[project]
+name = "vpn-pix-bot"
+version = "0.1.0"
+description = "VPN_PIX_bot — Telegram bot service (aiogram 3.x)"
+requires-python = ">=3.12,<3.13"
+readme = "README.md"
+license = { text = "Proprietary" }
+authors = [{ name = "VPN_PIX team" }]
+
+dependencies = [
+    "aiogram>=3.13,<4.0",
+    "httpx>=0.27,<1.0",
+    "redis>=5.0,<6.0",
+    "pydantic>=2.7,<3.0",
+    "pydantic-settings>=2.4,<3.0",
+    "structlog>=24.1,<25.0",
+    "orjson>=3.10,<4.0",
+    "tenacity>=9.0,<10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6,<1.0",
+    "mypy>=1.11,<2.0",
+    "types-redis>=4.6",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+# ===== Ruff =====
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",      # pycodestyle / pyflakes
+    "I",                 # isort
+    "B",                 # flake8-bugbear
+    "UP",                # pyupgrade
+    "N",                 # pep8-naming
+    "S",                 # bandit
+    "ASYNC",             # flake8-async
+    "C4",                # comprehensions
+    "SIM",               # simplify
+    "RUF",               # ruff-specific
+]
+ignore = [
+    "S101",  # asserts allowed in code (pytest-style)
+    "B008",  # function-call default args (FastAPI/aiogram patterns)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"app/main.py" = ["E402"]
+
+# ===== MyPy =====
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+no_implicit_optional = true
+check_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["aiogram.*"]
+ignore_missing_imports = false
