@@ -605,9 +605,11 @@ class BackendClient:
     ) -> dict[str, Any] | None:
         """GET /api/bot/tickets/by-thread/{thread_id}.
 
-        Returns the OPEN ticket bound to the given group topic thread, or
-        ``None`` if the thread has no open ticket. Used by the admin-side
-        topic-message handler.
+        Backend response is the same envelope as ``/active-ticket``:
+        ``{"ticket": {...} | null}``. Returns the inner ticket dict (so
+        callers can read ``ticket["id"]``, ``ticket["status"]`` directly),
+        or ``None`` if the thread has no bound ticket. A 404 is also treated
+        as ``None``.
         """
         try:
             response = await self._request(
@@ -618,7 +620,12 @@ class BackendClient:
                 return None
             raise
         data = response.json()
-        return data if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            return None
+        ticket = data.get("ticket")
+        if isinstance(ticket, dict):
+            return ticket
+        return None
 
     async def get_support_topic(self, user_id: int) -> dict[str, Any]:
         """GET /api/bot/support-topic/{user_id}.
