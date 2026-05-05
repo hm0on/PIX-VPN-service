@@ -628,7 +628,11 @@ async def msg_in_ticket(
 # ----------------------------- outside-ticket nudge -------------------------
 
 
-@router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
+@router.message(
+    StateFilter(None),
+    F.chat.type == "private",
+    F.text & ~F.text.startswith("/"),
+)
 async def msg_unsolicited_text(
     message: Message,
     texts: TextService,
@@ -639,6 +643,10 @@ async def msg_unsolicited_text(
     instead of letting the message vanish silently. Slash-commands and
     state-bound messages are excluded by the filter so this only triggers
     for ad-hoc free-text DMs.
+
+    Restricted to private chats — admin replies inside the support forum
+    group must NOT trigger this nudge (they're handled by the dedicated
+    admin-side router that listens for replies inside the support group).
 
     Note: this handler MUST be registered after every other state-bound
     handler in this router (and after Stage 2/3 state-bound handlers in

@@ -82,7 +82,7 @@ class UserMiddleware(BaseMiddleware):
         start_payload = _extract_start_payload(event)
 
         try:
-            db_user = await self._api.upsert_user(
+            upsert_response = await self._api.upsert_user(
                 tg_user, start_payload=start_payload
             )
         except BackendUnavailableError as exc:
@@ -97,6 +97,18 @@ class UserMiddleware(BaseMiddleware):
             )
             await self._notify_unavailable(source)
             return None  # stop processing — but don't raise.
+
+        # Backend returns ``{"user": UserResponse, "created": bool}`` — every
+        # handler in the bot, the BanMiddleware, and the support-topic helper
+        # expect ``db_user`` to be the *flat* user dict (with ``id``, ``tg_id``,
+        # ``is_banned``, …). Unwrap once here so consumers don't have to.
+        if isinstance(upsert_response, dict) and isinstance(
+            upsert_response.get("user"), dict
+        ):
+            db_user = upsert_response["user"]
+        else:
+            # Defensive fallback — older backend or unexpected payload shape.
+            db_user = upsert_response
 
         data["db_user"] = db_user
         return await handler(event, data)
