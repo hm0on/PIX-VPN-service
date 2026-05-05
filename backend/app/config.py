@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -42,7 +42,10 @@ class Settings(BaseSettings):
     backend_service_token: str = "change_me_to_long_random_64_chars"
     jwt_secret: str = "change_me_to_long_random_64_chars"
     jwt_ttl_hours: int = 24
-    cors_origins: list[str] = Field(
+    # NoDecode tells pydantic-settings v2 NOT to attempt JSON-parsing the raw env
+    # value before our before-validator runs. Without this, `CORS_ORIGINS=a,b`
+    # raises JSONDecodeError because the source layer treats list[str] as "complex".
+    cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173"],
     )
 
