@@ -46,7 +46,8 @@ Thumbs.db
 
 # Logs
 *.log
-logs/
+# Anchor /logs/ to repo root only — otherwise it shadows admin/src/pages/logs/
+/logs/
 
 # Local SSL
 infra/nginx/ssl/
