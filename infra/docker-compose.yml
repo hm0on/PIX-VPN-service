@@ -54,6 +54,10 @@ services:
       - ../.env
     environment:
       TZ: ${TZ:-Europe/Moscow}
+    volumes:
+      # Broadcast photo uploads (and any other admin-managed media) — must
+      # outlive image rebuilds, otherwise photo_path rows point to nothing.
+      - backend_var:/app/var
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,6 +96,10 @@ services:
       - ../.env
     environment:
       TZ: ${TZ:-Europe/Moscow}
+    volumes:
+      # Read-only mount of the same broadcast media that the backend writes,
+      # so run_broadcast can stream photos to Telegram on the first send.
+      - backend_var:/app/var:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -130,6 +138,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  backend_var:
 
 networks:
   internal:

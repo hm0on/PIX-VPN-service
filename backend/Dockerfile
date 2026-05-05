@@ -54,7 +54,13 @@ COPY --chown=app:app alembic /app/alembic
 COPY --chown=app:app alembic.ini /app/alembic.ini
 COPY --chown=app:app entrypoint.sh /app/entrypoint.sh
 
-RUN chmod +x /app/entrypoint.sh
+# /app/var is the writable persistence root inside the container. Broadcast
+# photo uploads land in /app/var/broadcasts/<id>/<uuid>.jpg. A named volume
+# is mounted here in compose so files survive image rebuilds. We pre-create
+# the dir owned by `app` because the runtime user can't mkdir under /app.
+RUN chmod +x /app/entrypoint.sh \
+    && mkdir -p /app/var/broadcasts \
+    && chown -R app:app /app/var
 
 USER app
 

@@ -60,7 +60,10 @@ router = APIRouter()
 logger = get_logger("admin.broadcasts")
 
 
-_PHOTO_ROOT = Path("var") / "broadcasts"
+# Absolute path so it doesn't depend on cwd. The Dockerfile pre-creates this
+# directory with chown app:app, and infra/docker-compose.yml mounts a named
+# volume here so uploads survive image rebuilds.
+_PHOTO_ROOT = Path("/app/var/broadcasts")
 _PHOTO_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 _PHOTO_ALLOWED_EXT = {"jpg", "jpeg", "png"}
 _PHOTO_ALLOWED_CT = {"image/jpeg", "image/png", "image/jpg"}
@@ -161,6 +164,21 @@ async def create_broadcast(
     )
     await session.commit()
     await session.refresh(bc)
+    return _serialize(bc)
+
+
+@router.get("/{broadcast_id}", response_model=AdminBroadcast)
+async def get_broadcast(
+    broadcast_id: int,
+    session: DBSession,
+    _: AdminDep,
+) -> AdminBroadcast:
+    """Single-broadcast fetch — used by the editor when navigating to /edit."""
+    bc = await session.get(Broadcast, broadcast_id)
+    if bc is None:
+        raise NotFoundError(
+            "Broadcast not found", error_code="broadcast_not_found"
+        )
     return _serialize(bc)
 
 
