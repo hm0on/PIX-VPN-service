@@ -159,10 +159,13 @@ async def cb_tariff(
 
     # ---- Paid path: store tariff_id, show duration list ----
     await state.update_data(tariff_id=tariff_id)
+    # NB: backend's ``tariff_durations_header`` template uses
+    # ``{tariff_description}`` (see backend/app/seeds.py); the field on the
+    # API response is ``description_html``. Keep both in sync here.
     text = await texts.get(
         "tariff_durations_header",
         tariff_name=tariff.get("name", ""),
-        description=tariff.get("description", ""),
+        tariff_description=tariff.get("description_html") or "",
     )
     durations = tariff.get("durations") or []
     await safe_edit_or_answer(
@@ -555,7 +558,7 @@ async def cb_duration_back(
     text = await texts.get(
         "tariff_durations_header",
         tariff_name=tariff.get("name", ""),
-        description=tariff.get("description", ""),
+        tariff_description=tariff.get("description_html") or "",
     )
     durations = tariff.get("durations") or []
     await safe_edit_or_answer(

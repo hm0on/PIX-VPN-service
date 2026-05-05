@@ -241,15 +241,17 @@ class BackendClient:
         Backend returns roughly::
 
             [
-              {"id": 1, "code": "free", "name": "FREE", "description": "...",
+              {"id": 1, "code": "free", "name": "FREE",
+               "description_html": "...",
                "is_free_trial": true, "is_active": true, "sort_order": 0,
-               "devices": 3, "days": 3, "durations": []},
-              {"id": 2, "code": "basic", "name": "Basic", "description": "...",
+               "devices": 3, "free_trial_days": 3, "durations": []},
+              {"id": 2, "code": "basic", "name": "Basic",
+               "description_html": "...",
                "is_free_trial": false, "is_active": true, "sort_order": 10,
                "devices": 3,
                "durations": [
-                 {"id": 11, "months": 1, "price_kopecks": 18900, "is_hot": false},
-                 {"id": 12, "months": 3, "price_kopecks": 45900, "is_hot": true},
+                 {"id": 11, "days": 30,  "price_kopecks": 18900, "is_hot": false},
+                 {"id": 12, "days": 90,  "price_kopecks": 45900, "is_hot": true},
                  ...
                ]},
               ...

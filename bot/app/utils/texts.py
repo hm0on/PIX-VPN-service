@@ -60,7 +60,7 @@ _HARDCODED_FALLBACKS: dict[str, str] = {
     # ---- Stage 2: catalog / purchase / profile ----------------------------
     "catalog_header": "<b>Каталог</b>\nВыберите тариф:",
     "tariff_durations_header": (
-        "<b>{tariff_name}</b>\n{description}\n\nВыберите длительность:"
+        "<b>{tariff_name}</b>\n{tariff_description}\n\nВыберите длительность:"
     ),
     "promo_input_prompt": (
         "<b>Введите промокод:</b>\nИли нажмите «Нет промокода», чтобы продолжить."

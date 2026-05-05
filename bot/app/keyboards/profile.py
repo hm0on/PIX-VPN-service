@@ -142,6 +142,30 @@ def _months_label(months: int) -> str:
     return f"{months} {word}"
 
 
+def _days_label(days: int) -> str:
+    """Russian-pluralised "1 день / 3 дня / 14 дней" — local copy."""
+    if days % 10 == 1 and days % 100 != 11:
+        word = "день"
+    elif 2 <= days % 10 <= 4 and not 12 <= days % 100 <= 14:
+        word = "дня"
+    else:
+        word = "дней"
+    return f"{days} {word}"
+
+
+def _duration_label(days: int) -> str:
+    """Friendly label for a duration expressed in days.
+
+    Mirrors :func:`keyboards.catalog._duration_label` — see it for rationale.
+    """
+    if days <= 0:
+        return _days_label(0)
+    if days < 30:
+        return _days_label(days)
+    months = round(days / 30)
+    return _months_label(max(1, months))
+
+
 def extension_durations_kb(
     durations: list[dict[str, Any]], subscription_id: int
 ) -> InlineKeyboardMarkup:
@@ -151,13 +175,13 @@ def extension_durations_kb(
     extension namespace (``ext_duration``) and includes ``sub_id`` in every
     callback so the dispatcher doesn't depend on FSM for the sub identity.
     """
-    sorted_durs = sorted(durations, key=lambda d: int(d.get("months", 0)))
+    sorted_durs = sorted(durations, key=lambda d: int(d.get("days", 0)))
 
     rows: list[list[InlineKeyboardButton]] = []
     for d in sorted_durs:
-        months = int(d.get("months", 0))
+        days = int(d.get("days", 0))
         price_kop = int(d.get("price_kopecks", 0))
-        label = f"{_months_label(months)} — {price_kop // 100} ₽"
+        label = f"{_duration_label(days)} — {price_kop // 100} ₽"
         if d.get("is_hot"):
             label = f"{label} 🔥"
         rows.append(

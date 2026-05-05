@@ -45,6 +45,32 @@ def _months_label(months: int) -> str:
     return f"{months} {word}"
 
 
+def _days_label(days: int) -> str:
+    """Russian-pluralised "1 день / 3 дня / 14 дней"."""
+    if days % 10 == 1 and days % 100 != 11:
+        word = "день"
+    elif 2 <= days % 10 <= 4 and not 12 <= days % 100 <= 14:
+        word = "дня"
+    else:
+        word = "дней"
+    return f"{days} {word}"
+
+
+def _duration_label(days: int) -> str:
+    """Friendly label for a duration expressed in days.
+
+    Backend stores durations in *days* (30, 90, 180, 365, …). For typical
+    monthly buckets we show "N месяцев"; for short or non-multiple values
+    we fall back to "N дней" so we never show "0 месяцев".
+    """
+    if days <= 0:
+        return _days_label(0)
+    if days < 30:
+        return _days_label(days)
+    months = round(days / 30)
+    return _months_label(max(1, months))
+
+
 def catalog_kb(tariffs: list[dict[str, Any]]) -> InlineKeyboardMarkup:
     """Render tariff list — FREE first, then paid tariffs by ``sort_order``.
 
@@ -79,16 +105,18 @@ def tariff_durations_kb(
 ) -> InlineKeyboardMarkup:
     """Duration buttons for a paid tariff.
 
-    ``durations`` items: ``{"id", "months", "price_kopecks", "is_hot"}``.
-    Buttons are ordered by ``months`` ascending. The hot one gets a 🔥 suffix.
+    ``durations`` items: ``{"id", "days", "price_kopecks", "is_hot"}``.
+    Buttons are ordered by ``days`` ascending. The hot one gets a 🔥 suffix.
+    Days are rendered as "N месяцев" (rounded) for the typical 30/90/180/365
+    buckets and as "N дней" for short non-monthly durations.
     """
-    sorted_durs = sorted(durations, key=lambda d: int(d.get("months", 0)))
+    sorted_durs = sorted(durations, key=lambda d: int(d.get("days", 0)))
 
     rows: list[list[InlineKeyboardButton]] = []
     for d in sorted_durs:
-        months = int(d.get("months", 0))
+        days = int(d.get("days", 0))
         price = int(d.get("price_kopecks", 0))
-        label = f"{_months_label(months)} — {_format_rub(price)}"
+        label = f"{_duration_label(days)} — {_format_rub(price)}"
         if d.get("is_hot"):
             label = f"{label} 🔥"
         rows.append(
