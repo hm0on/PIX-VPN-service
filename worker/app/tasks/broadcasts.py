@@ -29,6 +29,7 @@ import redis.asyncio as redis_asyncio
 from sqlalchemy import text
 
 from app.logging_setup import get_logger
+from app.tg_html import to_telegram_html
 
 if TYPE_CHECKING:
     from arq import ArqRedis
@@ -233,6 +234,11 @@ async def run_broadcast(ctx: dict[str, Any], broadcast_id: int) -> dict[str, int
                 per_row = 1
             reply_markup = _build_reply_markup(buttons, per_row=per_row)
 
+            # The editor (TipTap) emits full HTML — <p>, class=, target=,
+            # and HTML-escaped <tg-emoji>/<tg-spoiler>. Telegram's HTML
+            # parser is strict (rejects <p>), so sanitize once per batch.
+            tg_html_text = to_telegram_html(bc_curr["html_text"])
+
             # Send each recipient in this batch sequentially so we keep
             # to ~25 msg/sec.
             for rec in batch:
@@ -241,7 +247,7 @@ async def run_broadcast(ctx: dict[str, Any], broadcast_id: int) -> dict[str, int
                     envelope = await _send_one(
                         tg_client,
                         chat_id=tg_id,
-                        html_text=bc_curr["html_text"],
+                        html_text=tg_html_text,
                         photo_file_id=bc_curr["photo_file_id"],
                         photo_path=bc_curr["photo_path"],
                         reply_markup=reply_markup,

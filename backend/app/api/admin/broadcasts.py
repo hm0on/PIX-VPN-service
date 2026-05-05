@@ -55,6 +55,7 @@ from app.schemas.admin_panel.broadcast import (
 )
 from app.services import arq_client, telegram_admin_client
 from app.services.audit_service import record_admin_action
+from app.services.tg_html import to_telegram_html
 
 router = APIRouter()
 logger = get_logger("admin.broadcasts")
@@ -510,17 +511,21 @@ async def test_broadcast(
     settings = get_settings()  # noqa: F841 — reserved for future ADMIN_TG_ID default
     chat_id = payload.tg_id
 
+    # Sanitize TipTap HTML to Telegram's whitelist — same converter the
+    # worker uses for real broadcasts, so the test send is representative.
+    tg_html_text = to_telegram_html(bc.html_text)
+
     if bc.photo_path and Path(bc.photo_path).exists():  # noqa: ASYNC240 — local stat is fine
         envelope = await telegram_admin_client.send_photo_path(
             chat_id,
             bc.photo_path,
-            caption=bc.html_text,
+            caption=tg_html_text,
             reply_markup=reply_markup,
         )
     else:
         envelope = await telegram_admin_client.send_message(
             chat_id,
-            bc.html_text,
+            tg_html_text,
             reply_markup=reply_markup,
         )
 
