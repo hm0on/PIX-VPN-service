@@ -87,8 +87,10 @@ async def bot_log(
     Failures to deliver to backend never raise — we log a local warning instead.
     """
     log = get_logger("bot.business")
+    # `event` is passed positionally to log.<level>(), so it must NOT also live
+    # in **payload — otherwise structlog raises
+    # "got multiple values for argument 'event'".
     payload: dict[str, Any] = {
-        "event": event,
         "level": level,
         "user_id": user_id,
         "context": context or {},
