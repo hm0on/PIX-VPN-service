@@ -233,3 +233,35 @@ async def test_invalid_payload_is_marked_failed(
     assert counters["failed"] == 1
     assert tg.calls == []
     assert api.failed_paths == ["/api/bot/outbox/4/failed"]
+
+
+class _DictEnvelopeAPIClient(FakeAPIClient):
+    """API fake that returns the real backend shape: ``{"items": [...]}``.
+
+    The original FakeAPIClient hands back a bare list, which papered over a
+    real bug — backend's ``OutboxPendingResponse`` is a dict envelope, and
+    the dispatcher silently dropped every poll as "unexpected shape" until
+    we taught it to unwrap ``items``.
+    """
+
+    async def get(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> _FakeResponse:
+        self.calls.append(("GET", path, params))
+        return _FakeResponse(200, {"items": self._pending})
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_unwraps_items_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: backend returns ``{"items": [...]}``, not a bare list."""
+    api = _DictEnvelopeAPIClient(pending=[_msg(5)])
+    tg = FakeTelegramClient(
+        envelopes=[{"ok": True, "result": {"message_id": 99}}]
+    )
+
+    counters = await outbox_dispatcher_task(_make_ctx(api, tg, monkeypatch))
+
+    assert counters == {"fetched": 1, "sent": 1, "failed": 0, "skipped": 0}
+    assert api.sent_paths == ["/api/bot/outbox/5/sent"]

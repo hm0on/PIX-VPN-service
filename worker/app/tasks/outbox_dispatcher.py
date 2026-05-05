@@ -114,11 +114,25 @@ async def _fetch_pending(
         log.error("outbox_fetch_bad_json")
         return None
 
-    if not isinstance(data, list):
-        log.error("outbox_fetch_unexpected_shape", type=type(data).__name__)
-        return None
+    # Backend returns ``OutboxPendingResponse{items: [...]}`` — a dict with an
+    # ``items`` array. Tolerate a bare list too so legacy/test fixtures keep
+    # working.
+    if isinstance(data, dict):
+        items = data.get("items", [])
+        if not isinstance(items, list):
+            log.error(
+                "outbox_fetch_unexpected_shape",
+                type=type(items).__name__,
+                where="items",
+            )
+            return None
+        return [m for m in items if isinstance(m, dict)]
 
-    return [m for m in data if isinstance(m, dict)]
+    if isinstance(data, list):
+        return [m for m in data if isinstance(m, dict)]
+
+    log.error("outbox_fetch_unexpected_shape", type=type(data).__name__)
+    return None
 
 
 async def _process_one(
