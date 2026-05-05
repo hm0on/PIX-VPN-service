@@ -90,6 +90,26 @@ async def upsert_user(payload: UserUpsertRequest, session: DBSession) -> UserUps
     )
 
 
+# NOTE: this route MUST be registered BEFORE ``/users/{tg_id}`` —
+# otherwise FastAPI matches ``by-id`` as a literal ``tg_id`` value and
+# trips int-coercion (422) instead of resolving here.
+@router.get("/users/by-id/{user_id}", response_model=UserResponse)
+async def get_user_by_id(user_id: int, session: DBSession) -> UserResponse:
+    """Look up a user by primary-key id.
+
+    Used by the bot's admin-side support flow: a ticket carries
+    ``user_id`` (FK), and the bot needs the user's ``tg_id`` to deliver
+    admin replies/notices into the user's DM.
+    """
+    service = UserService(session)
+    user = await service.repo.get_by_id(user_id)
+    if user is None:
+        raise NotFoundError(
+            f"User id={user_id} not found", error_code="user_not_found"
+        )
+    return UserResponse.model_validate(user)
+
+
 @router.get("/users/{tg_id}", response_model=UserResponse)
 async def get_user(tg_id: int, session: DBSession) -> UserResponse:
     service = UserService(session)

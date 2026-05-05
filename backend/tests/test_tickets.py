@@ -89,6 +89,33 @@ async def test_close_nonexistent_ticket_404(client, auth_headers):  # noqa: ANN0
 
 
 @pytest.mark.asyncio
+async def test_close_by_admin_no_tg_id_succeeds(client, auth_headers):  # noqa: ANN001
+    """The admin-side close path passes ``by="admin"`` without
+    ``tg_user_id`` — the ownership check must be skipped.
+
+    Regression: the bot used to forward the *admin's* tg_id as
+    ``tg_user_id``, which the backend interpreted as the ticket owner
+    and 404'd on mismatch.
+    """
+    await _create_user(client, auth_headers, tg_id=8050, username="frank")
+
+    r1 = await client.post(
+        "/api/bot/tickets/open",
+        headers=auth_headers,
+        json={"tg_user_id": 8050, "kind": "support"},
+    )
+    ticket_id = r1.json()["id"]
+
+    r2 = await client.post(
+        f"/api/bot/tickets/{ticket_id}/close",
+        headers=auth_headers,
+        json={"by": "admin"},
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["status"] == "closed"
+
+
+@pytest.mark.asyncio
 async def test_close_by_user_with_wrong_tg_id_404(client, auth_headers):  # noqa: ANN001
     await _create_user(client, auth_headers, tg_id=8003, username="carol")
     await _create_user(client, auth_headers, tg_id=8004, username="dave")

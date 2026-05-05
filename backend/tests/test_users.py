@@ -56,6 +56,30 @@ async def test_get_user_not_found(client, auth_headers):  # noqa: ANN001
 
 
 @pytest.mark.asyncio
+async def test_get_user_by_pk_id(client, auth_headers):  # noqa: ANN001
+    """The bot's admin-side support flow looks users up by PK id (FK on
+    tickets) to recover ``tg_id`` for replies/notices."""
+    p = {"tg_id": 1004, "username": "dave"}
+    upsert = await client.post("/api/bot/users", json=p, headers=auth_headers)
+    assert upsert.status_code == 200
+    user_id = upsert.json()["user"]["id"]
+
+    r = await client.get(f"/api/bot/users/by-id/{user_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["id"] == user_id
+    assert body["tg_id"] == 1004
+    assert body["username"] == "dave"
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_pk_id_not_found(client, auth_headers):  # noqa: ANN001
+    r = await client.get("/api/bot/users/by-id/999999999", headers=auth_headers)
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "user_not_found"
+
+
+@pytest.mark.asyncio
 async def test_users_require_service_token(client):  # noqa: ANN001
     r = await client.get("/api/bot/users/1")
     assert r.status_code == 401

@@ -123,7 +123,13 @@ async def _close_ticket_flow(
     code = str(ticket.get("code") or "—")
     thread_id = int(ticket.get("topic_thread_id") or 0)
 
-    closed = await api.close_ticket(ticket_id, by="admin", tg_user_id=actor_tg_id)
+    # IMPORTANT: do NOT pass ``tg_user_id`` here. The backend's
+    # ``/tickets/{id}/close`` interprets ``tg_user_id`` as the *ticket
+    # owner* (used for the user-side close path to verify ownership) —
+    # passing the admin's tg_id triggers an ownership-mismatch which is
+    # masked as 404 ``ticket_not_found``. ``actor_tg_id`` is used only
+    # for the local bot_log audit trail below.
+    closed = await api.close_ticket(ticket_id, by="admin")
     final_code = str(closed.get("code") or code)
 
     user_tg_id = await _resolve_ticket_user_tg_id(api, ticket)
@@ -153,7 +159,11 @@ async def _close_ticket_flow(
         event="ticket_closed_by_admin",
         user_id=ticket.get("user_id"),
         message=f"Admin closed ticket {final_code}",
-        context={"ticket_id": ticket_id, "thread_id": thread_id},
+        context={
+            "ticket_id": ticket_id,
+            "thread_id": thread_id,
+            "actor_tg_id": actor_tg_id,
+        },
     )
 
 
