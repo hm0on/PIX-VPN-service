@@ -88,7 +88,7 @@ async def test_ban_unban(client, make_user, auth_admin_headers):  # noqa: ANN001
     )
     body = r_get.json()
     assert body["is_banned"] is True
-    assert body["banned_reason"] == "spam"
+    assert body["ban_reason"] == "spam"
 
     r_unban = await client.post(
         f"/api/admin/users/{uid}/unban", headers=auth_admin_headers
@@ -106,12 +106,12 @@ async def test_balance_adjust(client, make_user, auth_admin_headers):  # noqa: A
     r = await client.post(
         f"/api/admin/users/{uid}/balance/adjust",
         headers=auth_admin_headers,
-        json={"amount_kopecks": 1500, "reason": "manual top-up"},
+        json={"amount_kop": 1500, "reason": "manual top-up"},
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["balance_kopecks"] == 2000
-    assert body["delta_kopecks"] == 1500
+    assert body["balance_kop"] == 2000
+    assert body["delta_kop"] == 1500
 
     # History
     r_h = await client.get(
@@ -119,7 +119,7 @@ async def test_balance_adjust(client, make_user, auth_admin_headers):  # noqa: A
     )
     assert r_h.status_code == 200
     rows = r_h.json()
-    assert any(r["reason"] == "admin_adjust" and r["amount_kopecks"] == 1500 for r in rows)
+    assert any(r["reason"] == "admin_adjust" and r["amount_kop"] == 1500 for r in rows)
 
 
 @pytest.mark.asyncio
@@ -130,6 +130,6 @@ async def test_balance_adjust_negative_blocked_below_zero(
     r = await client.post(
         f"/api/admin/users/{uid}/balance/adjust",
         headers=auth_admin_headers,
-        json={"amount_kopecks": -1000, "reason": "wipe"},
+        json={"amount_kop": -1000, "reason": "wipe"},
     )
     assert r.status_code == 402  # InsufficientBalanceError

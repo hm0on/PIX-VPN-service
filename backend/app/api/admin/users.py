@@ -45,7 +45,8 @@ _SORT_FIELDS: dict[str, Any] = {
     "tg_id": User.tg_id,
     "username": User.username,
     "balance": User.balance_kopecks,
-    "balance_kopecks": User.balance_kopecks,
+    "balance_kop": User.balance_kopecks,
+    "balance_kopecks": User.balance_kopecks,  # legacy alias
     "created_at": User.created_at,
 }
 
@@ -132,10 +133,10 @@ async def list_users(
             username=u.username,
             first_name=u.first_name,
             last_name=u.last_name,
-            balance_kopecks=int(u.balance_kopecks),
+            balance_kop=int(u.balance_kopecks),
             active_subscriptions_count=int(cnt or 0),
             is_banned=bool(u.is_banned),
-            banned_reason=u.banned_reason,
+            ban_reason=u.banned_reason,
             created_at=u.created_at,
         )
         for u, cnt in rows
@@ -179,9 +180,9 @@ async def get_user_detail(
         first_name=user.first_name,
         last_name=user.last_name,
         language_code=user.language_code,
-        balance_kopecks=int(user.balance_kopecks),
+        balance_kop=int(user.balance_kopecks),
         is_banned=bool(user.is_banned),
-        banned_reason=user.banned_reason,
+        ban_reason=user.banned_reason,
         created_at=user.created_at,
         referrer=referrer_payload,
     )
@@ -206,7 +207,7 @@ async def list_user_payments(
             subscription_id=p.subscription_id,
             purpose=p.purpose,
             provider=p.provider,
-            amount_kopecks=int(p.amount_kopecks),
+            amount_kop=int(p.amount_kopecks),
             currency=p.currency,
             status=p.status,
             created_at=p.created_at,
@@ -340,10 +341,10 @@ async def get_user_balance_history(
     return [
         AdminUserBalanceTxItem(
             id=t.id,
-            amount_kopecks=int(t.amount_kopecks),
+            amount_kop=int(t.amount_kopecks),
             reason=t.reason,
             description=t.description,
-            balance_after_kopecks=int(t.balance_after_kopecks),
+            balance_after_kop=int(t.balance_after_kopecks),
             ref_payment_id=t.ref_payment_id,
             ref_subscription_id=t.ref_subscription_id,
             created_at=t.created_at,
@@ -443,9 +444,10 @@ async def adjust_balance(
     user = await _get_user_or_404(session, user_id)
 
     service = BalanceService(session, northline)
+    delta_kopecks = int(payload.amount_kop)
     new_balance = await service.add_admin_adjust(
         user_id=user.id,
-        amount_kopecks=int(payload.amount_kopecks),
+        amount_kopecks=delta_kopecks,
         reason=payload.reason,
         admin_key_id=admin.kid,
         admin_key_label=admin.label,
@@ -460,7 +462,7 @@ async def adjust_balance(
         payload={
             "text_key": "balance_admin_adjusted",
             "format_kwargs": {
-                "delta": _kopecks_to_rub_str(int(payload.amount_kopecks)),
+                "delta": _kopecks_to_rub_str(delta_kopecks),
                 "balance": f"{new_balance / 100:.2f}",
             },
             "parse_mode": "HTML",
@@ -473,7 +475,7 @@ async def adjust_balance(
         action="user.balance.adjust",
         target_user_id=user.id,
         extra={
-            "amount_kopecks": int(payload.amount_kopecks),
+            "amount_kopecks": delta_kopecks,
             "balance_after_kopecks": new_balance,
             "reason": payload.reason,
         },
@@ -481,8 +483,8 @@ async def adjust_balance(
     await session.commit()
     return AdminUserBalanceAdjustResponse(
         user_id=user.id,
-        balance_kopecks=new_balance,
-        delta_kopecks=int(payload.amount_kopecks),
+        balance_kop=new_balance,
+        delta_kop=delta_kopecks,
     )
 
 

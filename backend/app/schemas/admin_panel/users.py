@@ -14,10 +14,13 @@ class AdminUserListItem(BaseModel):
     username: str | None = None
     first_name: str | None = None
     last_name: str | None = None
-    balance_kopecks: int
+    # NB: API field is `balance_kop` (admin frontend contract).
+    # The DB column is `balance_kopecks`; renaming happens at the
+    # serialization boundary (see api/admin/users.py).
+    balance_kop: int
     active_subscriptions_count: int
     is_banned: bool
-    banned_reason: str | None = None
+    ban_reason: str | None = None
     created_at: datetime
 
 
@@ -35,9 +38,9 @@ class AdminUserDetail(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
     language_code: str | None = None
-    balance_kopecks: int
+    balance_kop: int
     is_banned: bool
-    banned_reason: str | None = None
+    ban_reason: str | None = None
     created_at: datetime
     referrer: dict[str, Any] | None = None  # {id, tg_id, username}
 
@@ -47,7 +50,7 @@ class AdminUserPaymentItem(BaseModel):
     subscription_id: int | None = None
     purpose: str
     provider: str
-    amount_kopecks: int
+    amount_kop: int
     currency: str
     status: str
     created_at: datetime
@@ -92,10 +95,10 @@ class AdminUserReferrals(BaseModel):
 
 class AdminUserBalanceTxItem(BaseModel):
     id: int
-    amount_kopecks: int
+    amount_kop: int
     reason: str
     description: str | None = None
-    balance_after_kopecks: int
+    balance_after_kop: int
     ref_payment_id: int | None = None
     ref_subscription_id: int | None = None
     created_at: datetime
@@ -106,11 +109,11 @@ class AdminUserBanRequest(BaseModel):
 
 
 class AdminUserBalanceAdjustRequest(BaseModel):
-    amount_kopecks: int = Field(description="Signed delta in kopecks")
+    amount_kop: int = Field(description="Signed delta in kopecks")
     reason: str = Field(min_length=1, max_length=2000)
 
 
 class AdminUserBalanceAdjustResponse(BaseModel):
     user_id: int
-    balance_kopecks: int
-    delta_kopecks: int
+    balance_kop: int
+    delta_kop: int
