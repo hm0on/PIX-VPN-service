@@ -22,7 +22,11 @@ class AdminBroadcast(BaseModel):
     html_text: str
     photo_file_id: str | None = None
     photo_path: str | None = None
+    # URL the admin UI can use as <img src=...> for the previously uploaded
+    # photo. Populated by the router from photo_path; not a DB column.
+    photo_url: str | None = None
     buttons: list[BroadcastButton] | None = None
+    buttons_per_row: int = 1
     target: str
     scheduled_at: datetime | None = None
     status: str
@@ -48,6 +52,8 @@ class AdminBroadcastCreate(BaseModel):
     html_text: str = Field(min_length=1, max_length=4096)
     target: Literal["all", "subscribers"] = "all"
     buttons: list[BroadcastButton] | None = None
+    # 1..4: how many buttons go in one inline-keyboard row.
+    buttons_per_row: int = Field(default=1, ge=1, le=4)
     scheduled_at: datetime | None = None
 
     @field_validator("buttons")
@@ -66,6 +72,7 @@ class AdminBroadcastPatch(BaseModel):
     html_text: str | None = Field(default=None, min_length=1, max_length=4096)
     target: Literal["all", "subscribers"] | None = None
     buttons: list[BroadcastButton] | None = None
+    buttons_per_row: int | None = Field(default=None, ge=1, le=4)
     scheduled_at: datetime | None = None
 
     @field_validator("buttons")

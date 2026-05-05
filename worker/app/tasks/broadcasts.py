@@ -199,7 +199,8 @@ async def run_broadcast(ctx: dict[str, Any], broadcast_id: int) -> dict[str, int
                 bc_res = await session.execute(
                     text(
                         "SELECT html_text, photo_file_id, photo_path, buttons, "
-                        "status FROM broadcasts WHERE id = :id"
+                        "buttons_per_row, status FROM broadcasts "
+                        "WHERE id = :id"
                     ),
                     {"id": broadcast_id},
                 )
@@ -225,7 +226,12 @@ async def run_broadcast(ctx: dict[str, Any], broadcast_id: int) -> dict[str, int
                     buttons = json.loads(buttons)
                 except ValueError:
                     buttons = None
-            reply_markup = _build_reply_markup(buttons)
+            per_row_raw = bc_curr.get("buttons_per_row") or 1
+            try:
+                per_row = max(1, min(int(per_row_raw), 4))
+            except (TypeError, ValueError):
+                per_row = 1
+            reply_markup = _build_reply_markup(buttons, per_row=per_row)
 
             # Send each recipient in this batch sequentially so we keep
             # to ~25 msg/sec.
@@ -325,18 +331,24 @@ async def _finalize(
         )
 
 
-def _build_reply_markup(buttons: Any) -> dict[str, Any] | None:
+def _build_reply_markup(
+    buttons: Any, *, per_row: int = 1
+) -> dict[str, Any] | None:
     if not isinstance(buttons, list) or not buttons:
         return None
-    rows: list[list[dict[str, str]]] = []
+    per_row = max(1, min(int(per_row or 1), 4))
+    flat: list[dict[str, str]] = []
     for btn in buttons:
         if not isinstance(btn, dict):
             continue
         text_v = btn.get("text")
         url = btn.get("url")
         if isinstance(text_v, str) and isinstance(url, str):
-            rows.append([{"text": text_v, "url": url}])
-    return {"inline_keyboard": rows} if rows else None
+            flat.append({"text": text_v, "url": url})
+    if not flat:
+        return None
+    rows = [flat[i : i + per_row] for i in range(0, len(flat), per_row)]
+    return {"inline_keyboard": rows}
 
 
 def _maybe_extract_photo_file_id(envelope: dict[str, Any]) -> str | None:

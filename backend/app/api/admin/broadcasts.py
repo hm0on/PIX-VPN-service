@@ -18,9 +18,11 @@ from fastapi import (
     File,
     HTTPException,
     Query,
+    Response,
     UploadFile,
     status,
 )
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 
 from app.config import get_settings
@@ -44,7 +46,6 @@ from app.schemas.admin_panel.broadcast import (
     AdminBroadcast,
     AdminBroadcastCreate,
     AdminBroadcastPatch,
-    AdminBroadcastPhotoResponse,
     AdminBroadcastRecipient,
     AdminBroadcastRecipientsPage,
     AdminBroadcastSchedule,
@@ -65,8 +66,22 @@ _PHOTO_ALLOWED_EXT = {"jpg", "jpeg", "png"}
 _PHOTO_ALLOWED_CT = {"image/jpeg", "image/png", "image/jpg"}
 
 
+def _photo_url(b: Broadcast) -> str | None:
+    """Build the URL the admin UI should hit for the previously uploaded photo.
+
+    The actual bytes are served by ``GET /api/admin/broadcasts/{id}/photo``;
+    we only return that URL when there's a file on disk to serve. The path is
+    relative to the API base, so the frontend's apiClient (with JWT) handles it.
+    """
+    if not b.photo_path:
+        return None
+    return f"/admin/broadcasts/{b.id}/photo"
+
+
 def _serialize(b: Broadcast) -> AdminBroadcast:
-    return AdminBroadcast.model_validate(b)
+    obj = AdminBroadcast.model_validate(b)
+    obj.photo_url = _photo_url(b)
+    return obj
 
 
 # --------------------------------------------------------------------- #
@@ -130,6 +145,7 @@ async def create_broadcast(
         buttons=[b.model_dump() for b in payload.buttons]
         if payload.buttons
         else None,
+        buttons_per_row=payload.buttons_per_row,
         status=new_status,
         created_by_admin_key_id=admin.kid,
         created_by_admin_key_label=admin.label,
@@ -181,6 +197,9 @@ async def patch_broadcast(
     if payload.buttons is not None:
         bc.buttons = [b.model_dump() for b in payload.buttons]
         changes["buttons"] = len(payload.buttons)
+    if payload.buttons_per_row is not None:
+        bc.buttons_per_row = payload.buttons_per_row
+        changes["buttons_per_row"] = payload.buttons_per_row
     if payload.scheduled_at is not None:
         bc.scheduled_at = payload.scheduled_at
         bc.status = BROADCAST_STATUS_SCHEDULED
@@ -204,14 +223,14 @@ async def patch_broadcast(
 # --------------------------------------------------------------------- #
 @router.post(
     "/{broadcast_id}/photo",
-    response_model=AdminBroadcastPhotoResponse,
+    response_model=AdminBroadcast,
 )
 async def upload_photo(
     broadcast_id: int,
     session: DBSession,
     admin: AdminDep,
     file: UploadFile = File(...),
-) -> AdminBroadcastPhotoResponse:
+) -> AdminBroadcast:
     bc = await session.get(Broadcast, broadcast_id)
     if bc is None:
         raise NotFoundError(
@@ -257,8 +276,65 @@ async def upload_photo(
         extra={"broadcast_id": broadcast_id, "size": len(body)},
     )
     await session.commit()
+    await session.refresh(bc)
 
-    return AdminBroadcastPhotoResponse(photo_path=str(target_path))
+    # Frontend re-hydrates the editor from this response (photo_url, etc.).
+    return _serialize(bc)
+
+
+# Map of allowed extensions → content types for the photo serve endpoint.
+_PHOTO_CT_BY_EXT: dict[str, str] = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+}
+
+
+@router.get("/{broadcast_id}/photo")
+async def serve_photo(
+    broadcast_id: int,
+    session: DBSession,
+    _: AdminDep,
+) -> Response:
+    """Stream back the previously uploaded photo for the broadcast editor.
+
+    The admin UI fetches this via the JWT-authenticated apiClient, wraps the
+    bytes in URL.createObjectURL() and uses the resulting blob: URL as <img src=...>
+    (CSP allows blob: under img-src for exactly this case).
+    """
+    bc = await session.get(Broadcast, broadcast_id)
+    if bc is None:
+        raise NotFoundError(
+            "Broadcast not found", error_code="broadcast_not_found"
+        )
+    if not bc.photo_path:
+        raise NotFoundError(
+            "Broadcast has no photo", error_code="broadcast_no_photo"
+        )
+
+    path = Path(bc.photo_path)
+    # Defence in depth: photo_path is set by us, but make sure we never serve
+    # arbitrary files outside the broadcasts root.
+    try:
+        path = path.resolve(strict=True)
+    except (FileNotFoundError, OSError) as exc:
+        raise NotFoundError(
+            "Photo file missing on disk", error_code="broadcast_photo_missing"
+        ) from exc
+    photo_root = _PHOTO_ROOT.resolve()
+    if not str(path).startswith(str(photo_root)):
+        raise NotFoundError(
+            "Photo path escapes broadcasts root",
+            error_code="broadcast_photo_invalid",
+        )
+
+    ext = path.suffix.lstrip(".").lower()
+    media_type = _PHOTO_CT_BY_EXT.get(ext, "application/octet-stream")
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=60"},
+    )
 
 
 # --------------------------------------------------------------------- #
@@ -408,11 +484,10 @@ async def test_broadcast(
 
     reply_markup: dict[str, object] | None = None
     if bc.buttons:
-        reply_markup = {
-            "inline_keyboard": [
-                [{"text": btn["text"], "url": btn["url"]}] for btn in bc.buttons
-            ]
-        }
+        per_row = max(1, min(int(bc.buttons_per_row or 1), 4))
+        flat = [{"text": btn["text"], "url": btn["url"]} for btn in bc.buttons]
+        rows = [flat[i : i + per_row] for i in range(0, len(flat), per_row)]
+        reply_markup = {"inline_keyboard": rows}
 
     settings = get_settings()  # noqa: F841 — reserved for future ADMIN_TG_ID default
     chat_id = payload.tg_id

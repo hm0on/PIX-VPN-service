@@ -57,6 +57,29 @@ export async function uploadPhoto(id: number, file: File): Promise<Broadcast> {
   return data;
 }
 
+/**
+ * Fetch the previously uploaded broadcast photo as a blob: URL.
+ *
+ * The bytes themselves come back from a JWT-protected endpoint, so we can't
+ * just stick the URL into <img src=...>. Instead we download via the
+ * authenticated apiClient, then wrap the blob with URL.createObjectURL.
+ *
+ * Caller is responsible for revoking the returned URL with URL.revokeObjectURL
+ * when the component unmounts to avoid leaking blob memory.
+ */
+export async function fetchPhotoBlobUrl(id: number): Promise<string | null> {
+  try {
+    const { data } = await apiClient.get<Blob>(`/admin/broadcasts/${id}/photo`, {
+      responseType: 'blob',
+    });
+    return URL.createObjectURL(data);
+  } catch {
+    // Editor uses null to mean "no photo yet" — treat 404 / network errors
+    // the same way rather than throwing inside an effect.
+    return null;
+  }
+}
+
 export async function sendBroadcast(id: number): Promise<Broadcast> {
   const { data } = await apiClient.post<Broadcast>(`/admin/broadcasts/${id}/send`);
   return data;

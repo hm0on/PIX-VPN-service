@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     func,
@@ -57,6 +58,12 @@ class Broadcast(BigIntPK, Base):
     photo_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     buttons: Mapped[list[dict[str, Any]] | None] = mapped_column(
         _json_type(), nullable=True
+    )
+    # How many buttons fit in a single inline-keyboard row. 1..4 enforced at
+    # the API layer. Default 1 = one button per row, matching legacy behaviour
+    # for rows created before this column existed.
+    buttons_per_row: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="1", default=1
     )
     target: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default=BROADCAST_TARGET_ALL

@@ -45,6 +45,32 @@ def test_build_reply_markup_filters_invalid_items():
     ]
 
 
+def test_build_reply_markup_chunks_by_per_row():
+    buttons: list[Any] = [
+        {"text": "A", "url": "https://a"},
+        {"text": "B", "url": "https://b"},
+        {"text": "C", "url": "https://c"},
+        {"text": "D", "url": "https://d"},
+        {"text": "E", "url": "https://e"},
+    ]
+    markup = _build_reply_markup(buttons, per_row=2)
+    assert markup == {
+        "inline_keyboard": [
+            [{"text": "A", "url": "https://a"}, {"text": "B", "url": "https://b"}],
+            [{"text": "C", "url": "https://c"}, {"text": "D", "url": "https://d"}],
+            [{"text": "E", "url": "https://e"}],
+        ]
+    }
+
+
+def test_build_reply_markup_clamps_per_row():
+    # Out-of-range per_row values are clamped to [1, 4] rather than raising.
+    buttons: list[Any] = [{"text": "X", "url": "https://x"}]
+    assert _build_reply_markup(buttons, per_row=99) is not None
+    assert _build_reply_markup(buttons, per_row=0) is not None
+    assert _build_reply_markup(buttons, per_row=-5) is not None
+
+
 def test_extract_photo_file_id_picks_largest():
     envelope = {
         "ok": True,

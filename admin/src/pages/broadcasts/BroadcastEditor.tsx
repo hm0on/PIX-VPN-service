@@ -20,6 +20,7 @@ import { getErrorMessage } from '@/api/client';
 import {
   cancelBroadcast,
   createBroadcast,
+  fetchPhotoBlobUrl,
   getBroadcast,
   scheduleBroadcast,
   sendBroadcast,
@@ -104,7 +105,6 @@ export default function BroadcastEditor() {
       setTarget(b.target);
       setButtons(b.buttons ?? []);
       setButtonsPerRow(b.buttons_per_row ?? 1);
-      setPhotoServerUrl(b.photo_url ?? null);
       setStatus(b.status);
       if (b.scheduled_at) {
         setScheduleMode('scheduled');
@@ -115,6 +115,33 @@ export default function BroadcastEditor() {
       }
     }
   }, [query.data]);
+
+  // Photo preview for an already-saved broadcast: the GET /photo endpoint is
+  // JWT-protected, so we can't stick its URL in <img src> directly. Pull the
+  // blob via the authenticated apiClient, wrap it in URL.createObjectURL, and
+  // free it on cleanup. Skipped if the user has just picked a new local file
+  // (photoFile owns the preview in that case).
+  useEffect(() => {
+    if (!query.data?.photo_url || photoFile) {
+      return;
+    }
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    void fetchPhotoBlobUrl(query.data.id).then((url) => {
+      if (cancelled) {
+        if (url) URL.revokeObjectURL(url);
+        return;
+      }
+      createdUrl = url;
+      setPhotoServerUrl(url);
+    });
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+    // photo_url in the cache changes whenever upload mutates the broadcast,
+    // so this effect re-runs after a fresh upload as well.
+  }, [query.data?.id, query.data?.photo_url, photoFile]);
 
   useEffect(() => {
     if (!photoFile) {
@@ -156,10 +183,12 @@ export default function BroadcastEditor() {
 
   const photoMut = useMutation({
     mutationFn: ({ id, file }: { id: number; file: File }) => uploadPhoto(id, file),
-    onSuccess: (b) => {
+    onSuccess: () => {
       toast.success('Фото загружено');
       setPhotoFile(null);
-      setPhotoServerUrl(b.photo_url ?? null);
+      // Don't store photo_url here — let the hydrate effect re-fetch the blob
+      // through the authenticated client (the URL itself is unreachable from
+      // <img src> without a JWT header).
       void qc.invalidateQueries({ queryKey: ['broadcast', draftId] });
     },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -212,11 +241,11 @@ export default function BroadcastEditor() {
   }
 
   // NB: backend uses extra="forbid" on AdminBroadcastCreate/Patch, so we
-  // must NOT send keys it doesn't know about. `buttons_per_row` is a
-  // UI-only concept used for the preview grid; it's not persisted.
+  // must mirror its fields exactly. `buttons_per_row` is now persisted.
   const buildPayload = () => ({
     html_text: htmlText,
     buttons: buttons.length ? buttons : null,
+    buttons_per_row: buttonsPerRow,
     target,
   });
 
