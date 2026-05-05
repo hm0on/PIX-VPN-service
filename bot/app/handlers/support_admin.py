@@ -24,10 +24,13 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from aiogram.types import CallbackQuery, Message
 
 from app.api_client import BackendClient
 from app.config import Settings
+from app.keyboards.main_menu import main_menu_kb
+from app.keyboards.ticket import remove_kb
 from app.keyboards.ticket_admin import (
     CB_BAN,
     CB_BAN_CANCEL,
@@ -109,6 +112,75 @@ async def _send_topic_reply(
         )
 
 
+async def _reset_user_after_admin_close(
+    bot: Bot,
+    fsm_storage: BaseStorage | None,
+    texts: TextService,
+    *,
+    user_tg_id: int,
+) -> None:
+    """Clean up the user's chat after their ticket was closed by an admin.
+
+    The user is normally sitting in :class:`TicketStates.in_ticket` with a
+    persistent reply keyboard ("Закрыть тикет"). If we leave that intact
+    after an admin-side close, tapping the button calls the user-close
+    endpoint on a now-closed ticket and produces the generic "что-то
+    пошло не так" toast. To avoid that:
+
+    1. Clear the user's FSM state via the shared storage (the same one
+       the user-side handlers use). Without state the persistent reply
+       keyboard's text is no longer routed to a ticket handler.
+    2. Send a tiny DM with :func:`remove_kb` to drop the reply keyboard.
+    3. Send the main-menu card with the standard inline keyboard so the
+       user has somewhere to go.
+
+    Every step is best-effort — failures must NOT cancel the close flow.
+    """
+    # 1. Clear FSM state for the user's *private* chat with the bot.
+    if fsm_storage is not None:
+        try:
+            bot_id = (await bot.me()).id
+            key = StorageKey(
+                bot_id=bot_id, chat_id=user_tg_id, user_id=user_tg_id
+            )
+            await fsm_storage.set_state(key, state=None)
+            await fsm_storage.set_data(key, data={})
+        except Exception as exc:  # noqa: BLE001 — storage failures must not raise.
+            log.warning(
+                "support_admin.user_state_reset_failed",
+                tg_id=user_tg_id,
+                error=str(exc),
+            )
+
+    # 2. Drop the persistent "Закрыть тикет" reply keyboard. Telegram only
+    # accepts ReplyKeyboardRemove on a message body, so we send a single
+    # zero-width-ish payload purely as the carrier.
+    try:
+        await bot.send_message(user_tg_id, "…", reply_markup=remove_kb())
+    except (TelegramForbiddenError, TelegramBadRequest) as exc:
+        log.warning(
+            "support_admin.user_kb_drop_failed",
+            tg_id=user_tg_id,
+            error=str(exc),
+        )
+
+    # 3. Show the main menu so the user has navigation.
+    try:
+        menu_text = await texts.get("main_menu")
+        await bot.send_message(
+            user_tg_id,
+            menu_text,
+            parse_mode="HTML",
+            reply_markup=main_menu_kb(),
+        )
+    except (TelegramForbiddenError, TelegramBadRequest) as exc:
+        log.warning(
+            "support_admin.user_menu_show_failed",
+            tg_id=user_tg_id,
+            error=str(exc),
+        )
+
+
 async def _close_ticket_flow(
     bot: Bot,
     api: BackendClient,
@@ -117,6 +189,7 @@ async def _close_ticket_flow(
     *,
     ticket: dict[str, Any],
     actor_tg_id: int | None,
+    fsm_storage: BaseStorage | None = None,
 ) -> None:
     """Close a ticket from the admin side + notify both surfaces."""
     ticket_id = int(ticket.get("id") or 0)
@@ -149,6 +222,13 @@ async def _close_ticket_flow(
                 tg_id=user_tg_id,
                 error=str(exc),
             )
+
+        # Drop the user's "in-ticket" FSM + reply keyboard and show the
+        # main menu. Skipping this leaves them stranded on a "Закрыть
+        # тикет" button that 404s against the (now closed) ticket.
+        await _reset_user_after_admin_close(
+            bot, fsm_storage, texts, user_tg_id=user_tg_id
+        )
 
     await support_topic_helper.notify_topic_admin_closed(
         bot, settings, thread_id, final_code, texts=texts
@@ -219,6 +299,7 @@ async def cmd_close(
     settings: Settings,
     texts: TextService,
     bot: Bot,
+    fsm_storage: BaseStorage | None = None,
 ) -> None:
     """``/close`` — close the ticket bound to the current topic."""
     if not _in_support_group(message, settings):
@@ -235,7 +316,13 @@ async def cmd_close(
 
     actor = message.from_user.id if message.from_user else None
     await _close_ticket_flow(
-        bot, api, settings, texts, ticket=ticket, actor_tg_id=actor
+        bot,
+        api,
+        settings,
+        texts,
+        ticket=ticket,
+        actor_tg_id=actor,
+        fsm_storage=fsm_storage,
     )
 
 
@@ -715,6 +802,7 @@ async def cb_admin_close(
     settings: Settings,
     texts: TextService,
     bot: Bot,
+    fsm_storage: BaseStorage | None = None,
 ) -> None:
     """Close the ticket from its inline button under the user message."""
     if not _in_support_group(callback, settings):
@@ -744,7 +832,13 @@ async def cb_admin_close(
     actor = callback.from_user.id if callback.from_user else None
     try:
         await _close_ticket_flow(
-            bot, api, settings, texts, ticket=ticket, actor_tg_id=actor
+            bot,
+            api,
+            settings,
+            texts,
+            ticket=ticket,
+            actor_tg_id=actor,
+            fsm_storage=fsm_storage,
         )
     except (BackendClientError, BackendUnavailableError) as exc:
         await callback.answer(

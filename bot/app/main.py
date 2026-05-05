@@ -113,6 +113,11 @@ async def _build_dispatcher(
     dp["redis"] = redis
     dp["texts"] = texts
     dp["settings"] = settings
+    # Expose the FSM storage so admin-side handlers can reach into a
+    # *target* user's state (e.g. clear their TicketStates.in_ticket
+    # when an admin closes the ticket, so the persistent "close" reply
+    # keyboard doesn't strand them).
+    dp["fsm_storage"] = storage
 
     # Middleware order matters — outermost first.
     # `trace` is attached to the root update observer so EVERY update kind
