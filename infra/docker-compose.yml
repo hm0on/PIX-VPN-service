@@ -1,9 +1,10 @@
 name: vpn_pix
 
-x-restart: &restart_policy
+# Common defaults — single anchor merged once per service.
+# Compose v2.30+ (yaml v3) no longer allows two `<<:` keys in the same mapping,
+# so we collapse `restart` + `logging` into one anchor.
+x-defaults: &defaults
   restart: unless-stopped
-
-x-logging: &default_logging
   logging:
     driver: json-file
     options:
@@ -12,8 +13,8 @@ x-logging: &default_logging
 
 services:
   postgres:
+    <<: *defaults
     image: postgres:16-alpine
-    <<: *restart_policy
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -27,12 +28,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    <<: *default_logging
     networks: [internal]
 
   redis:
+    <<: *defaults
     image: redis:7-alpine
-    <<: *restart_policy
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
     environment:
       TZ: ${TZ:-Europe/Moscow}
@@ -43,14 +43,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    <<: *default_logging
     networks: [internal]
 
   backend:
+    <<: *defaults
     build:
       context: ../backend
       dockerfile: Dockerfile
-    <<: *restart_policy
     env_file:
       - ../.env
     environment:
@@ -66,14 +65,13 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-    <<: *default_logging
     networks: [internal]
 
   bot:
+    <<: *defaults
     build:
       context: ../bot
       dockerfile: Dockerfile
-    <<: *restart_policy
     env_file:
       - ../.env
     environment:
@@ -83,14 +81,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    <<: *default_logging
     networks: [internal]
 
   worker:
+    <<: *defaults
     build:
       context: ../worker
       dockerfile: Dockerfile
-    <<: *restart_policy
     env_file:
       - ../.env
     environment:
@@ -100,25 +97,23 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    <<: *default_logging
     networks: [internal]
 
   admin:
+    <<: *defaults
     build:
       context: ../admin
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
         VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
-    <<: *restart_policy
     environment:
       TZ: ${TZ:-Europe/Moscow}
-    <<: *default_logging
     networks: [internal]
 
   nginx:
+    <<: *defaults
     image: nginx:1.27-alpine
-    <<: *restart_policy
     ports:
       - "80:80"
       - "443:443"
@@ -130,7 +125,6 @@ services:
     depends_on:
       - backend
       - admin
-    <<: *default_logging
     networks: [internal]
 
 volumes:
