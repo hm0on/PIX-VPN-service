@@ -50,8 +50,15 @@ def test_unescapes_tg_emoji() -> None:
     assert to_telegram_html(src) == 'x <tg-emoji emoji-id="123">⭐</tg-emoji> y'
 
 
-def test_unescapes_tg_spoiler_span() -> None:
+def test_unescapes_tg_spoiler_span_with_escaped_quotes() -> None:
     src = '<p>&lt;span class=&quot;tg-spoiler&quot;&gt;hide&lt;/span&gt;</p>'
+    assert to_telegram_html(src) == '<span class="tg-spoiler">hide</span>'
+
+
+def test_unescapes_tg_spoiler_span_with_real_quotes() -> None:
+    # TipTap can store the class attribute either with HTML-escaped quotes
+    # (&quot;) or with literal " — both forms came out of prod broadcasts.
+    src = '<p>&lt;span class="tg-spoiler"&gt;hide&lt;/span&gt;</p>'
     assert to_telegram_html(src) == '<span class="tg-spoiler">hide</span>'
 
 

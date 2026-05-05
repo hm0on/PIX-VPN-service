@@ -123,16 +123,33 @@ def to_telegram_html(src: str | None) -> str:
     # BEFORE parsing so the rest of the pipeline sees real tags. Limit the
     # rewrite to the known Telegram tags so we don't accidentally re-open
     # arbitrary HTML the user typed.
-    s = src
-    s = re.sub(r"&lt;(/?)tg-emoji([^&]*?)&gt;", r"<\1tg-emoji\2>", s, flags=re.IGNORECASE)
-    s = re.sub(r"&lt;(/?)tg-spoiler([^&]*?)&gt;", r"<\1tg-spoiler\2>", s, flags=re.IGNORECASE)
+    #
+    # Subtlety: the editor can store either ``class="tg-spoiler"`` (real
+    # quotes) or ``class=&quot;tg-spoiler&quot;`` (HTML-escaped quotes)
+    # depending on which TipTap mark fired the escape. To handle both we
+    # decode `&quot;` inside any escaped tag block, then match on the
+    # plain form. We do *not* unescape `&` globally — the user's body text
+    # may legitimately contain ``&lt;`` they want to display literally.
+    def _unescape_tag(match: re.Match[str]) -> str:
+        inner = match.group(1)
+        # Decode &quot; / &amp; inside the captured tag body so attribute
+        # matching downstream sees the same string regardless of editor
+        # quirks. Don't decode &lt;/&gt; — that would let nested escapes
+        # leak out into the parser.
+        inner = inner.replace("&quot;", '"').replace("&amp;", "&")
+        return f"<{inner}>"
+
+    # Match an escaped tag block whose body starts with an allowed Telegram
+    # tag name (with optional leading slash for closing tags). The inner
+    # body can't contain &lt; or &gt; — that prevents us from swallowing
+    # adjacent escapes.
+    _TG_TAGS = r"(?:/?(?:tg-emoji|tg-spoiler|span|b|strong|i|em|u|s|code|pre|blockquote|a))"
     s = re.sub(
-        r"&lt;span\s+class=&quot;tg-spoiler&quot;&gt;",
-        '<span class="tg-spoiler">',
-        s,
-        flags=re.IGNORECASE,
+        rf"&lt;({_TG_TAGS}(?:(?!&lt;|&gt;).)*?)&gt;",
+        _unescape_tag,
+        src,
+        flags=re.IGNORECASE | re.DOTALL,
     )
-    s = re.sub(r"&lt;/span&gt;", "</span>", s, flags=re.IGNORECASE)
 
     out: list[str] = []
     # Track whether each tag we entered had a real opening output, so we
