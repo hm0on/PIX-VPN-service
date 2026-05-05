@@ -26,17 +26,19 @@ export interface Broadcast {
   finished_at: string | null;
 }
 
+// NB: backend rejects unknown keys (extra="forbid"), so the create/update
+// payloads must mirror AdminBroadcastCreate / AdminBroadcastPatch exactly.
+// `buttons_per_row` is a UI-only concept — it lives in component state for
+// the preview but is never sent to the backend.
 export interface BroadcastCreatePayload {
   html_text: string;
   buttons?: BroadcastButton[] | null;
-  buttons_per_row?: number;
   target: BroadcastTarget;
 }
 
 export interface BroadcastUpdatePayload {
   html_text?: string;
   buttons?: BroadcastButton[] | null;
-  buttons_per_row?: number;
   target?: BroadcastTarget;
   scheduled_at?: string | null;
 }

@@ -211,10 +211,12 @@ export default function BroadcastEditor() {
     photoMut.mutate({ id, file: photoFile });
   }
 
+  // NB: backend uses extra="forbid" on AdminBroadcastCreate/Patch, so we
+  // must NOT send keys it doesn't know about. `buttons_per_row` is a
+  // UI-only concept used for the preview grid; it's not persisted.
   const buildPayload = () => ({
     html_text: htmlText,
     buttons: buttons.length ? buttons : null,
-    buttons_per_row: buttonsPerRow,
     target,
   });
 
