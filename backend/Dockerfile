@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
+# Keep this list in sync with pyproject.toml [project.dependencies].
 RUN pip install --upgrade pip wheel setuptools && \
     pip wheel --wheel-dir=/wheels \
         "fastapi>=0.115" "uvicorn[standard]>=0.30" "gunicorn>=22.0" \
@@ -23,7 +24,8 @@ RUN pip install --upgrade pip wheel setuptools && \
         "sqlalchemy[asyncio]>=2.0.30" "asyncpg>=0.29" "alembic>=1.13" \
         "redis>=5.0" "httpx>=0.27" "structlog>=24.1" \
         "argon2-cffi>=23.1" "pyjwt[crypto]>=2.9" \
-        "python-multipart>=0.0.9" "orjson>=3.10"
+        "python-multipart>=0.0.9" "orjson>=3.10" \
+        "tenacity>=8.5" "sse-starlette>=2.1" "arq>=0.26"
 
 # ===== Runtime =====
 FROM python:3.12-slim AS runtime
