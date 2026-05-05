@@ -118,10 +118,29 @@ class BackendClient:
             except ValueError:
                 parsed = None
             if isinstance(parsed, dict):
+                # Backend envelope: ``{"error": {"code": "...", "message":
+                # "...", "details": {...}}}``. Older callers also tolerate a
+                # flat ``{"error_code": "...", ...}`` shape — keep both
+                # working so handlers can do ``payload.get("foo")`` whether
+                # ``foo`` lives top-level or under ``error.details``.
                 payload = parsed
-                code = parsed.get("error_code") or parsed.get("code")
-                if isinstance(code, str):
-                    error_code = code
+                err_obj = parsed.get("error")
+                if isinstance(err_obj, dict):
+                    code = err_obj.get("code")
+                    if isinstance(code, str):
+                        error_code = code
+                    details = err_obj.get("details")
+                    if isinstance(details, dict):
+                        # Promote details into payload top-level so existing
+                        # ``exc.payload.get("balance_kopecks")``-style lookups
+                        # keep working without forcing every handler to walk
+                        # the ``error.details`` path.
+                        for k, v in details.items():
+                            payload.setdefault(k, v)
+                if error_code is None:
+                    code = parsed.get("error_code") or parsed.get("code")
+                    if isinstance(code, str):
+                        error_code = code
             log.warning(
                 "api_client.client_error",
                 method=method,

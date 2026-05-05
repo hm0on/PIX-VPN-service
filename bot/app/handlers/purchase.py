@@ -186,8 +186,15 @@ async def _handle_purchase_client_error(
 
     if code == "insufficient_balance":
         text_key = "insufficient_balance"
-        # Backend may include the current balance to render a helpful message.
-        balance_kop_raw = exc.payload.get("balance_kopecks", 0)
+        # Backend's InsufficientBalanceError serialises ``details`` as
+        # ``{"current_balance_kopecks": ..., "required_kopecks": ...}``;
+        # ``api_client._request`` lifts those keys to ``payload``. Accept the
+        # legacy ``balance_kopecks`` key too in case some callers still use it.
+        balance_kop_raw = (
+            exc.payload.get("current_balance_kopecks")
+            or exc.payload.get("balance_kopecks")
+            or 0
+        )
         try:
             balance_kop = int(balance_kop_raw)  # type: ignore[arg-type]
         except (TypeError, ValueError):

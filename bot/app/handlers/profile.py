@@ -654,7 +654,14 @@ async def cb_ext_pay(
 
         fmt: dict[str, Any] = {}
         if text_key == "insufficient_balance":
-            balance_kop_raw = exc.payload.get("balance_kopecks", 0)
+            # Backend's InsufficientBalanceError carries
+            # ``current_balance_kopecks`` in ``details``. Accept the legacy
+            # ``balance_kopecks`` key as a fallback.
+            balance_kop_raw = (
+                exc.payload.get("current_balance_kopecks")
+                or exc.payload.get("balance_kopecks")
+                or 0
+            )
             try:
                 fmt = {"balance": int(balance_kop_raw) // 100}  # type: ignore[arg-type]
             except (TypeError, ValueError):
