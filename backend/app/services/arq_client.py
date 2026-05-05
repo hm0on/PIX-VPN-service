@@ -34,7 +34,7 @@ async def _get_pool() -> Any | None:
         host=settings.redis_host,
         port=settings.redis_port,
         password=settings.redis_password,
-        database=0,
+        database=settings.redis_database,
     )
     try:
         _pool = await create_pool(redis_settings)
@@ -45,12 +45,27 @@ async def _get_pool() -> Any | None:
 
 
 async def enqueue(function_name: str, *args: Any, **kwargs: Any) -> bool:
-    """Push a job onto the default ARQ queue. Returns True on success."""
+    """Push a job onto the worker's ARQ queue. Returns True on success.
+
+    We explicitly pin ``_queue_name`` to ``settings.arq_queue_name`` so the
+    job lands on the same queue the worker actually polls. ARQ defaults to
+    ``arq:queue`` when ``_queue_name`` is omitted, which silently swallows
+    jobs whenever the worker is configured with a non-default queue
+    (``WorkerSettings.queue_name``). The caller can still override by
+    passing ``_queue_name`` explicitly via ``kwargs``.
+    """
     pool = await _get_pool()
     if pool is None:
         return False
+    settings = get_settings()
+    kwargs.setdefault("_queue_name", settings.arq_queue_name)
     try:
         await pool.enqueue_job(function_name, *args, **kwargs)
+        logger.info(
+            "arq_enqueued",
+            function=function_name,
+            queue=kwargs["_queue_name"],
+        )
         return True
     except Exception as e:  # noqa: BLE001
         logger.warning(

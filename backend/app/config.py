@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     redis_host: str = "redis"
     redis_port: int = 6379
     redis_password: str | None = None
+    redis_database: int = Field(default=0, alias="REDIS_DATABASE")
+
+    # ARQ — must match the worker's queue, otherwise enqueued jobs vanish
+    # into ARQ's default `arq:queue` while the worker polls a custom one.
+    arq_queue_name: str = Field(default="default", alias="ARQ_QUEUE_NAME")
 
     # Backend
     backend_host: str = "0.0.0.0"
