@@ -1,4 +1,12 @@
-"""Stats schemas."""
+"""Stats schemas.
+
+Field names are aligned with the admin SPA contract:
+  * KPI uses `users_total`, `users_delta_24h`, `active_subscriptions`,
+    `revenue_month_kop`, `revenue_today_kop`.
+  * Time-series endpoints return a flat array (no `points` wrapper).
+  * Recent payments expose `amount_kop` (not `amount_kopecks`) and include
+    `status` + `subscription_id` so the SPA can render badges and links.
+"""
 
 from __future__ import annotations
 
@@ -8,25 +16,21 @@ from pydantic import BaseModel
 
 
 class DashboardKPIs(BaseModel):
-    total_users: int
-    users_24h_delta: int
+    users_total: int
+    users_delta_24h: int
     active_subscriptions: int
-    revenue_month: int
-    revenue_today: int
+    revenue_month_kop: int
+    revenue_today_kop: int
 
 
-class TimeseriesPoint(BaseModel):
+class RevenuePoint(BaseModel):
     date: str  # YYYY-MM-DD
-    amount: int = 0
+    amount_kop: int = 0
+
+
+class UsersPoint(BaseModel):
+    date: str  # YYYY-MM-DD
     count: int = 0
-
-
-class RevenueSeries(BaseModel):
-    points: list[TimeseriesPoint]
-
-
-class UsersSeries(BaseModel):
-    points: list[TimeseriesPoint]
 
 
 class RecentPaymentItem(BaseModel):
@@ -34,8 +38,10 @@ class RecentPaymentItem(BaseModel):
     user_id: int
     user_tg_id: int | None = None
     user_username: str | None = None
-    amount_kopecks: int
+    amount_kop: int
     provider: str
+    status: str
+    subscription_id: int | None = None
     created_at: datetime
     paid_at: datetime | None = None
 

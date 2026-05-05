@@ -1,4 +1,13 @@
-"""Admin dashboard / stats endpoints."""
+"""Admin dashboard / stats endpoints.
+
+Contract is consumed by the admin SPA (see `admin/src/api/endpoints/stats.ts`):
+  * KPI fields:  users_total, users_delta_24h, active_subscriptions,
+                 revenue_month_kop, revenue_today_kop
+  * /revenue and /users return a flat array of points (no wrapper)
+  * /recent-payments and /recent-users live at /admin/stats/recent-* (no
+    `/dashboard/` prefix); recent payments expose `amount_kop`, `status`,
+    `subscription_id`.
+"""
 
 from __future__ import annotations
 
@@ -24,9 +33,8 @@ from app.schemas.admin_panel.stats import (
     DashboardKPIs,
     RecentPaymentItem,
     RecentUserItem,
-    RevenueSeries,
-    TimeseriesPoint,
-    UsersSeries,
+    RevenuePoint,
+    UsersPoint,
 )
 
 router = APIRouter()
@@ -69,11 +77,11 @@ async def _compute_kpis(session) -> DashboardKPIs:  # noqa: ANN001
     revenue_today = int((await session.execute(revenue_today_q)).scalar_one() or 0)
 
     return DashboardKPIs(
-        total_users=int(total_users),
-        users_24h_delta=int(users_24h),
+        users_total=int(total_users),
+        users_delta_24h=int(users_24h),
         active_subscriptions=int(active_subs),
-        revenue_month=revenue_month,
-        revenue_today=revenue_today,
+        revenue_month_kop=revenue_month,
+        revenue_today_kop=revenue_today,
     )
 
 
@@ -92,17 +100,16 @@ async def dashboard(session: DBSession) -> DashboardKPIs:
     return await _compute_kpis(session)
 
 
-@router.get("/revenue", response_model=RevenueSeries)
+@router.get("/revenue", response_model=list[RevenuePoint])
 async def revenue(
     session: DBSession,
     period: Period = Query("30d"),
-) -> RevenueSeries:
+) -> list[RevenuePoint]:
     days = PERIOD_DAYS[period]
     end = _utcnow().date()
     start = end - timedelta(days=days - 1)
     start_dt = datetime(start.year, start.month, start.day, tzinfo=UTC)
 
-    # group by date(paid_at)
     bucket = func.date(Payment.paid_at).label("d")
     stmt = (
         select(bucket, func.coalesce(func.sum(Payment.amount_kopecks), 0))
@@ -126,18 +133,17 @@ async def revenue(
             key = str(d)
         by_date[key] = int(total or 0)
 
-    points = [
-        TimeseriesPoint(date=d.isoformat(), amount=by_date.get(d.isoformat(), 0))
+    return [
+        RevenuePoint(date=d.isoformat(), amount_kop=by_date.get(d.isoformat(), 0))
         for d in _date_iter(start, end)
     ]
-    return RevenueSeries(points=points)
 
 
-@router.get("/users", response_model=UsersSeries)
+@router.get("/users", response_model=list[UsersPoint])
 async def users_timeseries(
     session: DBSession,
     period: Period = Query("30d"),
-) -> UsersSeries:
+) -> list[UsersPoint]:
     days = PERIOD_DAYS[period]
     end = _utcnow().date()
     start = end - timedelta(days=days - 1)
@@ -158,21 +164,23 @@ async def users_timeseries(
         key = d.date().isoformat() if isinstance(d, datetime) else str(d)
         by_date[key] = int(cnt or 0)
 
-    points = [
-        TimeseriesPoint(date=d.isoformat(), count=by_date.get(d.isoformat(), 0))
+    return [
+        UsersPoint(date=d.isoformat(), count=by_date.get(d.isoformat(), 0))
         for d in _date_iter(start, end)
     ]
-    return UsersSeries(points=points)
 
 
-@router.get("/dashboard/recent-payments", response_model=list[RecentPaymentItem])
-async def recent_payments(session: DBSession) -> list[RecentPaymentItem]:
+@router.get("/recent-payments", response_model=list[RecentPaymentItem])
+async def recent_payments(
+    session: DBSession,
+    limit: int = Query(10, ge=1, le=100),
+) -> list[RecentPaymentItem]:
     stmt = (
         select(Payment, User.tg_id, User.username)
         .join(User, User.id == Payment.user_id)
         .where(Payment.status == PAYMENT_STATUS_PAID)
         .order_by(Payment.paid_at.desc().nullslast(), Payment.created_at.desc())
-        .limit(10)
+        .limit(limit)
     )
     rows = (await session.execute(stmt)).all()
     out: list[RecentPaymentItem] = []
@@ -183,8 +191,10 @@ async def recent_payments(session: DBSession) -> list[RecentPaymentItem]:
                 user_id=p.user_id,
                 user_tg_id=tg_id,
                 user_username=username,
-                amount_kopecks=int(p.amount_kopecks),
+                amount_kop=int(p.amount_kopecks),
                 provider=p.provider,
+                status=p.status,
+                subscription_id=getattr(p, "subscription_id", None),
                 created_at=p.created_at,
                 paid_at=p.paid_at,
             )
@@ -192,9 +202,12 @@ async def recent_payments(session: DBSession) -> list[RecentPaymentItem]:
     return out
 
 
-@router.get("/dashboard/recent-users", response_model=list[RecentUserItem])
-async def recent_users(session: DBSession) -> list[RecentUserItem]:
-    stmt = select(User).order_by(User.created_at.desc()).limit(10)
+@router.get("/recent-users", response_model=list[RecentUserItem])
+async def recent_users(
+    session: DBSession,
+    limit: int = Query(10, ge=1, le=100),
+) -> list[RecentUserItem]:
+    stmt = select(User).order_by(User.created_at.desc()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
     return [
         RecentUserItem(

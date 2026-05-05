@@ -53,9 +53,12 @@ async def test_dashboard(client, seed_payments, admin_headers):  # noqa: ANN001
     r = await client.get("/api/admin/stats/dashboard", headers=admin_headers)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["total_users"] >= 1
-    assert body["revenue_today"] >= 60000  # 10000+20000+30000
-    assert body["revenue_month"] >= 60000
+    assert body["users_total"] >= 1
+    assert body["revenue_today_kop"] >= 60000  # 10000+20000+30000
+    assert body["revenue_month_kop"] >= 60000
+    # New fields the SPA expects.
+    assert "users_delta_24h" in body
+    assert "active_subscriptions" in body
 
 
 @pytest.mark.asyncio
@@ -64,36 +67,41 @@ async def test_revenue_series(client, seed_payments, admin_headers):  # noqa: AN
         "/api/admin/stats/revenue?period=30d", headers=admin_headers
     )
     assert r.status_code == 200
-    body = r.json()
-    assert "points" in body
-    assert len(body["points"]) == 30
+    rows = r.json()
+    # Flat array, no `points` wrapper.
+    assert isinstance(rows, list)
+    assert len(rows) == 30
     # at least one bucket should be > 0 (today)
-    assert any(p["amount"] > 0 for p in body["points"])
+    assert any(p["amount_kop"] > 0 for p in rows)
 
 
 @pytest.mark.asyncio
 async def test_users_series(client, seed_payments, admin_headers):  # noqa: ANN001
     r = await client.get("/api/admin/stats/users?period=30d", headers=admin_headers)
     assert r.status_code == 200
-    body = r.json()
-    assert len(body["points"]) == 30
+    rows = r.json()
+    assert isinstance(rows, list)
+    assert len(rows) == 30
+    assert all("count" in p for p in rows)
 
 
 @pytest.mark.asyncio
 async def test_recent_payments(client, seed_payments, admin_headers):  # noqa: ANN001
     r = await client.get(
-        "/api/admin/stats/dashboard/recent-payments", headers=admin_headers
+        "/api/admin/stats/recent-payments", headers=admin_headers
     )
     assert r.status_code == 200
     rows = r.json()
     assert len(rows) >= 1
     assert all("user_tg_id" in row for row in rows)
+    assert all("amount_kop" in row for row in rows)
+    assert all("status" in row for row in rows)
 
 
 @pytest.mark.asyncio
 async def test_recent_users(client, seed_payments, admin_headers):  # noqa: ANN001
     r = await client.get(
-        "/api/admin/stats/dashboard/recent-users", headers=admin_headers
+        "/api/admin/stats/recent-users", headers=admin_headers
     )
     assert r.status_code == 200
     rows = r.json()
