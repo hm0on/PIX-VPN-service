@@ -66,9 +66,13 @@ async def cb_referral_program(
     earned_kop = int(stats.get("earned_kopecks", 0) or 0)
     ref_link = str(stats.get("ref_link", "") or "")
 
+    # Backend's ``referral_program_screen`` template uses ``{invited}``
+    # (see backend/app/seeds.py); pass ``count`` too so older seeds stay
+    # tolerant if redeployed without re-seed.
     text = await texts.get(
         "referral_program_screen",
         ref_link=ref_link,
+        invited=invited,
         count=invited,
         earned=earned_kop // 100,
     )

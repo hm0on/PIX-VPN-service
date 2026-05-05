@@ -123,17 +123,50 @@ async def cb_profile(
     active_subs = [s for s in subs if str(s.get("status", "")) in {"active", "pending"}]
     has_active = bool(active_subs)
 
+    # Referral count: best-effort. The screen still works if backend is in
+    # the middle of a hiccup — we just degrade to 0.
+    invited_count = 0
+    try:
+        ref_stats = await api.get_referral_stats(tg_id)
+        invited_count = int(ref_stats.get("invited", 0) or 0)
+    except Exception as exc:  # noqa: BLE001
+        # Best-effort: don't blow up the profile screen if the referral
+        # endpoint is flaky. Covers BackendUnavailableError /
+        # BackendClientError / unexpected runtime errors alike.
+        log.warning("profile.referral_stats_failed", error=str(exc))
+
+    # Pull display name from the bot user (UserMiddleware-attached) so we
+    # don't make an extra round-trip — fall back to the Telegram object.
+    db = db_user or {}
+    first_name = (
+        db.get("first_name")
+        or (callback.from_user.first_name if callback.from_user else None)
+        or ""
+    )
+    last_name = (
+        db.get("last_name")
+        or (callback.from_user.last_name if callback.from_user else None)
+        or ""
+    )
+    full_name = (f"{first_name} {last_name}").strip() or "—"
+    username = db.get("username") or (
+        callback.from_user.username if callback.from_user else None
+    )
+    username_display = f"@{username}" if username else "—"
+
+    fmt: dict[str, Any] = {
+        "balance": balance // 100,
+        "name": full_name,
+        "username": username_display,
+        "tg_id": tg_id,
+        "subs_count": len(active_subs),
+        "invited_count": invited_count,
+    }
     if has_active:
-        summary = _render_subs_summary(active_subs)
-        text = await texts.get(
-            "profile_header",
-            balance=balance // 100,
-            subscriptions=summary,
-        )
+        fmt["subscriptions"] = _render_subs_summary(active_subs)
+        text = await texts.get("profile_header", **fmt)
     else:
-        text = await texts.get(
-            "profile_no_subscriptions", balance=balance // 100
-        )
+        text = await texts.get("profile_no_subscriptions", **fmt)
 
     await safe_edit_or_answer(
         callback, text, reply_markup=profile_kb(active_subs, has_active)

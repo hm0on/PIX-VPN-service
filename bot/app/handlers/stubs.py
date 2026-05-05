@@ -28,7 +28,7 @@ log = get_logger("bot.handlers.stubs")
 # `catalog` and `profile` removed: handled by real routers (catalog.py /
 # profile.py). `support` and `idea` removed in Stage 4 (handled by support.py).
 # The remaining stubs cover the still-unimplemented sections.
-_STUB_CALLBACKS = frozenset({"promo", "about"})
+_STUB_CALLBACKS = frozenset({"about"})
 
 
 @router.callback_query(lambda c: c.data in _STUB_CALLBACKS)

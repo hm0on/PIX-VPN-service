@@ -105,13 +105,17 @@ _HARDCODED_FALLBACKS: dict[str, str] = {
     ),
     # ---- Stage 2: profile -------------------------------------------------
     "profile_header": (
-        "👤 <b>Ваш профиль</b>\n\n"
-        "Баланс: <b>{balance} ₽</b>\n\n"
+        "👤 <b>{name}</b>\n"
+        "ID: <code>{tg_id}</code> · {username}\n\n"
+        "💰 Баланс: <b>{balance} ₽</b>\n"
+        "📦 Подписок: <b>{subs_count}</b> · 👥 Рефералов: <b>{invited_count}</b>\n\n"
         "Активные подписки:\n{subscriptions}"
     ),
     "profile_no_subscriptions": (
-        "👤 <b>Ваш профиль</b>\n\n"
-        "Баланс: <b>{balance} ₽</b>\n\n"
+        "👤 <b>{name}</b>\n"
+        "ID: <code>{tg_id}</code> · {username}\n\n"
+        "💰 Баланс: <b>{balance} ₽</b>\n"
+        "📦 Подписок: <b>0</b> · 👥 Рефералов: <b>{invited_count}</b>\n\n"
         "У вас пока нет активных подписок."
     ),
     "subscription_detail": (
@@ -160,6 +164,11 @@ _HARDCODED_FALLBACKS: dict[str, str] = {
         "Промокод сейчас недоступен. "
         "Попробуйте другой или продолжите без промокода."
     ),
+    "promo_discount_requires_purchase": (
+        "🎟 <b>Это промокод на скидку.</b>\n"
+        "Чтобы применить его, начните оформление подписки в каталоге — "
+        "ввести промокод можно будет на этапе выбора длительности."
+    ),
     # ---- Stage 3: referral ----------------------------------------------
     "referral_program_screen": (
         "🎁 <b>Реферальная программа</b>\n\n"
@@ -167,7 +176,7 @@ _HARDCODED_FALLBACKS: dict[str, str] = {
         "кто оформит подписку!\n"
         "Друзья получат скидку <b>10%</b> на первую покупку.\n\n"
         "Ваша ссылка:\n<code>{ref_link}</code>\n\n"
-        "Приглашено: <b>{count}</b>\n"
+        "Приглашено: <b>{invited}</b>\n"
         "Заработано: <b>{earned} ₽</b>"
     ),
     "referral_bonus_credited": (

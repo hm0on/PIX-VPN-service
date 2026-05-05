@@ -28,6 +28,7 @@ from app.config import Settings, get_settings
 from app.handlers import catalog as h_catalog
 from app.handlers import getfileid as h_getfileid
 from app.handlers import profile as h_profile
+from app.handlers import promo as h_promo
 from app.handlers import purchase as h_purchase
 from app.handlers import referral as h_referral
 from app.handlers import start as h_start
@@ -148,6 +149,10 @@ async def _build_dispatcher(
     dp.include_router(h_profile.router)
     dp.include_router(h_topup.router)
     dp.include_router(h_referral.router)
+    # Standalone promo entry from the main menu — must register before
+    # ``h_stubs`` so ``F.data == "promo"`` doesn't fall through to the
+    # "section in development" stub.
+    dp.include_router(h_promo.router)
     # Stage 4 ticket routers. Admin-side comes FIRST so its support-group
     # filters intercept events before the user-side router (which assumes
     # private chats). Both must register before ``h_stubs``, which still

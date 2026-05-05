@@ -35,6 +35,18 @@ class TopupStates(StatesGroup):
     payment_method = State()      # выбор СБП / CryptoBot / крипта
 
 
+class PromoStates(StatesGroup):
+    """Standalone promo-code entry from the main menu.
+
+    Distinct from :class:`PurchaseStates.promo_input` (which is part of the
+    catalog → duration → promo → payment chain) so the dispatcher can route
+    a free-text message based on which entry point the user came in
+    through. Only ``balance``-type promos make sense standalone.
+    """
+
+    input = State()
+
+
 class ExtendStates(StatesGroup):
     """States traversed when extending an existing active subscription.
 
