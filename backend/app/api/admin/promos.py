@@ -15,6 +15,7 @@ from app.core.exceptions import (
 )
 from app.db.models.promo_activation import PromoActivation
 from app.db.models.promo_code import PROMO_TYPES, PromoCode
+from app.db.models.user import User
 from app.deps import AdminDep, DBSession
 from app.schemas.admin_panel.promo import (
     AdminPromo,
@@ -188,12 +189,36 @@ async def list_activations(
     if promo is None:
         raise NotFoundError("Promo not found", error_code="promo_not_found")
 
+    # JOIN users to surface tg_id / username — frontend renders @username
+    # or tg://<tg_id> so plain user_id alone isn't useful.
     res = await session.execute(
-        select(PromoActivation)
+        select(
+            PromoActivation.id,
+            PromoActivation.promo_id,
+            PromoActivation.user_id,
+            PromoActivation.payment_id,
+            PromoActivation.amount_applied_kopecks,
+            PromoActivation.created_at,
+            User.tg_id,
+            User.username,
+        )
+        .join(User, User.id == PromoActivation.user_id, isouter=True)
         .where(PromoActivation.promo_id == promo_id)
         .order_by(PromoActivation.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    rows = res.scalars().all()
-    return [AdminPromoActivation.model_validate(r) for r in rows]
+    rows = res.all()
+    return [
+        AdminPromoActivation(
+            id=r.id,
+            promo_id=r.promo_id,
+            user_id=r.user_id,
+            user_tg_id=r.tg_id,
+            user_username=r.username,
+            payment_id=r.payment_id,
+            applied_amount=r.amount_applied_kopecks,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]

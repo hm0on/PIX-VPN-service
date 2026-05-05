@@ -53,13 +53,16 @@ class AdminPromoPatch(BaseModel):
 
 
 class AdminPromoActivation(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+    # Pure Pydantic — populated explicitly in the router because we join the
+    # users table for tg_id/username and rename the amount field for the
+    # admin-frontend contract.
     id: int
     promo_id: int
     user_id: int
+    user_tg_id: int | None = None
+    user_username: str | None = None
     payment_id: int | None = None
-    amount_applied_kopecks: int
+    applied_amount: int  # kopecks
     created_at: datetime
 
 

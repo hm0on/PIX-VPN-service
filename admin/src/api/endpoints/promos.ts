@@ -9,11 +9,25 @@ import type {
 export interface PromoListParams {
   is_active?: boolean;
   code?: string;
+  page?: number;
+  page_size?: number;
+}
+
+interface PromoListResponse {
+  items: Promo[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export async function listPromos(params: PromoListParams = {}): Promise<Promo[]> {
-  const { data } = await apiClient.get<Promo[]>('/admin/promos', { params });
-  return data;
+  // Backend returns AdminPromosPage{items, total, page, page_size}.
+  // The page UI doesn't paginate yet, so we just unwrap items here and
+  // keep the rest of the page (Promos.tsx) using a flat array.
+  const { data } = await apiClient.get<PromoListResponse>('/admin/promos', {
+    params: { page_size: 200, ...params },
+  });
+  return data.items ?? [];
 }
 
 export async function createPromo(payload: PromoCreatePayload): Promise<Promo> {
