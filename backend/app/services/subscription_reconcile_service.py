@@ -57,6 +57,20 @@ log = get_logger("subscription_reconcile")
 DRIFT_THRESHOLD = timedelta(hours=1)
 
 
+def _ensure_utc(dt: datetime | None) -> datetime | None:
+    """Normalize a datetime to UTC.
+
+    Postgres TIMESTAMPTZ comes back tz-aware; SQLite (used by tests)
+    drops the tz and returns it naive. Both flow through the same
+    arithmetic below (``provider_exp - local_exp``), so we normalize.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _is_test_subscription_id(sub_id: str | None) -> bool:
     """Heuristic: subscription IDs the provider only "knows" in test mode.
 
@@ -215,8 +229,8 @@ async def reconcile_subscriptions(
             continue
 
         # ----- expires_at drift -----
-        provider_exp = info.expires_at
-        local_exp = sub.expires_at
+        provider_exp = _ensure_utc(info.expires_at)
+        local_exp = _ensure_utc(sub.expires_at)
         if provider_exp is None or local_exp is None:
             continue
 

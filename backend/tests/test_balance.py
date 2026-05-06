@@ -145,9 +145,14 @@ async def test_purchase_with_balance_ignores_provider_expires_at(  # noqa: ANN00
             await session.execute(select(Subscription).where(Subscription.id == sub_id))
         ).scalar_one()
 
+    # SQLite drops the TZ from TIMESTAMPTZ columns; re-attach UTC so we
+    # can subtract from the tz-aware ``issued_at``.
+    sub_expires = sub.expires_at
+    if sub_expires is not None and sub_expires.tzinfo is None:
+        sub_expires = sub_expires.replace(tzinfo=timezone.utc)
     # Local expires_at must be ~ issued_at + 30d, NOT the provider's "now".
     expected = issued_at + timedelta(days=30)
-    drift = abs((sub.expires_at - expected).total_seconds())
+    drift = abs((sub_expires - expected).total_seconds())
     assert drift < 60, (
         f"expected expires_at near {expected.isoformat()}, "
         f"got {sub.expires_at.isoformat()} (drift {drift}s)"

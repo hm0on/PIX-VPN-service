@@ -72,9 +72,15 @@ async def _make_active_sub(
 async def _get_sub(sub_id: int) -> Subscription:
     factory = get_session_factory()
     async with factory() as session:
-        return (
+        sub = (
             await session.execute(select(Subscription).where(Subscription.id == sub_id))
         ).scalar_one()
+        # SQLite (used in unit tests) stores datetimes as naive even when
+        # written through a TIMESTAMPTZ column. Re-attach UTC so callers
+        # can subtract two tz-aware datetimes without a TypeError.
+        if sub.expires_at is not None and sub.expires_at.tzinfo is None:
+            sub.expires_at = sub.expires_at.replace(tzinfo=timezone.utc)
+        return sub
 
 
 @pytest.mark.asyncio
