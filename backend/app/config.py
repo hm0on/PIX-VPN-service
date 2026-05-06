@@ -70,14 +70,14 @@ class Settings(BaseSettings):
     support_group_url: str | None = None
     howto_connect_url: str | None = None
 
-    # External (Stage 2+)
+    # NorthLine (reseller API)
     northline_api_url: str | None = None
     northline_provider_key: str | None = None
     northline_bearer_token: str | None = None
     # When true, ``NorthLineClient.create_key`` adds ``"test": true`` so the
     # provider returns a fake subscription without debiting the reseller
-    # balance. Useful for end-to-end smoke tests in production-like
-    # environments. See https://northline-vpn.xyz/reseller-api-docs#test-mode.
+    # balance. Useful for end-to-end smoke tests in staging. Keep ``false``
+    # in production.
     northline_test_mode: bool = False
 
     # Platega

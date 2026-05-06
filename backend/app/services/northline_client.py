@@ -1,6 +1,6 @@
 """Async HTTP client for the NorthLine Reseller API.
 
-Spec: https://northline-vpn.xyz/reseller-api-docs
+Base URL: https://northline-vpn.xyz/api/v1
 
 - httpx.AsyncClient under the hood.
 - Retries on 5xx and transport errors (3 attempts, exponential 1s/2s/4s) via tenacity.
@@ -12,6 +12,9 @@ Spec: https://northline-vpn.xyz/reseller-api-docs
   key. Toggle through the ``NORTHLINE_TEST_MODE`` env var. Other endpoints
   (``extend_key``, ``get_key``) do not support a sandbox flag — calls against
   fake test subscriptions will simply fail with NOT_FOUND.
+- White-label branding (``set_branding``/``get_branding``) lets us register a
+  custom_domain like ``sub.pix-app.xyz`` so subscription URLs delivered to
+  users are rooted at our hostname instead of the provider's default.
 """
 
 from __future__ import annotations
@@ -321,6 +324,46 @@ class NorthLineClient:
         except (NorthLineClientError, NorthLineUnavailableError):
             return False
         return bool(data.get("ok"))
+
+    # ----- Branding (white-label defaults) -----
+
+    async def get_branding(self) -> dict[str, Any]:
+        """GET /reseller/branding — fetch current key-level branding defaults."""
+        return await self._request("GET", "/reseller/branding")
+
+    async def set_branding(
+        self,
+        *,
+        custom_domain: str | None = None,
+        service_name: str | None = None,
+        service_description: str | None = None,
+        support_url: str | None = None,
+    ) -> dict[str, Any]:
+        """PATCH /reseller/branding — update key-level branding defaults.
+
+        Only the provided fields are sent. ``custom_domain`` must already
+        resolve (DNS A-record) to the provider's server IP — they validate
+        on write and reject otherwise.
+        """
+        body: dict[str, Any] = {}
+        if custom_domain is not None:
+            body["custom_domain"] = custom_domain
+        if service_name is not None:
+            body["service_name"] = service_name
+        if service_description is not None:
+            body["service_description"] = service_description
+        if support_url is not None:
+            body["support_url"] = support_url
+        if not body:
+            raise ValueError("set_branding requires at least one field")
+        started = time.perf_counter()
+        data = await self._request("PATCH", "/reseller/branding", json_body=body)
+        await self._tech_log(
+            "northline:set_branding",
+            started=started,
+            payload={"fields": sorted(body.keys())},
+        )
+        return data
 
     # ----- Logging helpers -----
 

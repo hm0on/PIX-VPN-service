@@ -561,9 +561,13 @@ class PaymentService:
 
                 settings = get_settings()
                 northline_client = NorthLineClient(
-                    base_url=settings.northline_api_url or "https://api.northline.vpn",
+                    base_url=(
+                        settings.northline_api_url
+                        or "https://northline-vpn.xyz/api/v1"
+                    ),
                     bearer_token=settings.northline_bearer_token or "",
                     provider_key=settings.northline_provider_key or "",
+                    test_mode=bool(settings.northline_test_mode),
                 )
             key_response = await northline_client.create_key(
                 days=sub.days,
