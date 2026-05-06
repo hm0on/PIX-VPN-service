@@ -46,6 +46,22 @@ def _is_retryable(exc: BaseException) -> bool:
     return False
 
 
+def _is_retryable_idempotent(exc: BaseException) -> bool:
+    """Retry only on transient connection errors — never on 5xx.
+
+    Used for non-idempotent POSTs whose server-side handler has user-visible
+    side effects (debit balance, create payment, call NorthLine, enqueue an
+    outbox notification). Retrying a 502/503 here means each attempt fires
+    those side effects again, e.g. three duplicate "refund" notifications
+    when NorthLine is briefly unavailable. We accept the rare connection-
+    timeout retry (the request likely never landed) but bail out on any
+    HTTP response — the server has already done *something* by that point.
+    """
+    return isinstance(
+        exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout)
+    )
+
+
 class BackendClient:
     """Thin async wrapper around the Backend bot-API."""
 
@@ -86,17 +102,26 @@ class BackendClient:
         *,
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        idempotent: bool = True,
     ) -> httpx.Response:
-        """Issue an HTTP request with retries and structured error handling."""
+        """Issue an HTTP request with retries and structured error handling.
+
+        ``idempotent=False`` disables the 5xx retry policy so a single
+        non-idempotent POST cannot trigger multiple server-side side
+        effects (e.g. NorthLine purchase that debits balance + enqueues
+        a refund notification on each attempt). Connection-level retries
+        still happen — the request likely never reached the server.
+        """
         trace_id = trace_id_var.get() or str(uuid.uuid4())
         headers = {"X-Trace-ID": trace_id}
         response: httpx.Response | None = None
+        retry_predicate = _is_retryable if idempotent else _is_retryable_idempotent
 
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(3),
                 wait=wait_exponential(multiplier=0.3, min=0.3, max=2.0),
-                retry=retry_if_exception(_is_retryable),
+                retry=retry_if_exception(retry_predicate),
                 reraise=True,
             ):
                 with attempt:
@@ -293,7 +318,7 @@ class BackendClient:
         ``vpn_provider_unavailable``}.
         """
         response = await self._request(
-            "POST", "/api/bot/free-trial", json={"tg_id": tg_id}
+            "POST", "/api/bot/free-trial", json={"tg_id": tg_id}, idempotent=False
         )
         return response.json()  # type: ignore[no-any-return]
 
@@ -327,7 +352,9 @@ class BackendClient:
         }
         if promo_id is not None:
             body["promo_id"] = promo_id
-        response = await self._request("POST", "/api/bot/purchase/start", json=body)
+        response = await self._request(
+            "POST", "/api/bot/purchase/start", json=body, idempotent=False
+        )
         return response.json()  # type: ignore[no-any-return]
 
     async def purchase_with_balance(
@@ -352,7 +379,9 @@ class BackendClient:
         }
         if promo_id is not None:
             body["promo_id"] = promo_id
-        response = await self._request("POST", "/api/bot/purchase/balance", json=body)
+        response = await self._request(
+            "POST", "/api/bot/purchase/balance", json=body, idempotent=False
+        )
         return response.json()  # type: ignore[no-any-return]
 
     # ---- balance / topup ----------------------------------------------------
@@ -373,7 +402,9 @@ class BackendClient:
             "amount_kopecks": amount_kopecks,
             "provider": provider,
         }
-        response = await self._request("POST", "/api/bot/topup/create", json=body)
+        response = await self._request(
+            "POST", "/api/bot/topup/create", json=body, idempotent=False
+        )
         return response.json()  # type: ignore[no-any-return]
 
     async def get_user_balance(self, tg_id: int) -> int:
@@ -457,7 +488,9 @@ class BackendClient:
         "promo_max_per_user_reached", "promo_max_total_reached"}``.
         """
         body = {"tg_id": tg_id, "code": code}
-        response = await self._request("POST", "/api/bot/promo/apply", json=body)
+        response = await self._request(
+            "POST", "/api/bot/promo/apply", json=body, idempotent=False
+        )
         return response.json()  # type: ignore[no-any-return]
 
     async def get_referral_stats(self, tg_id: int) -> dict[str, Any]:
@@ -503,7 +536,10 @@ class BackendClient:
             "promo_id": promo_id,
         }
         response = await self._request(
-            "POST", f"/api/bot/subscriptions/{subscription_id}/extend", json=body
+            "POST",
+            f"/api/bot/subscriptions/{subscription_id}/extend",
+            json=body,
+            idempotent=False,
         )
         return response.json()  # type: ignore[no-any-return]
 

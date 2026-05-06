@@ -344,17 +344,13 @@ class BalanceService:
             balance_after_kopecks=new_balance,
         )
 
-        # Outbox: notify user.
-        await self.outbox_repo.enqueue(
-            user_id=user_id,
-            chat_id=locked_user.tg_id,
-            message_type=OUTBOX_MSG_TEXT,
-            payload={
-                "text_key": "refund_after_provider_error",
-                "format_kwargs": {},
-                "parse_mode": "HTML",
-            },
-        )
+        # NOTE: We deliberately do NOT enqueue an outbox notification here.
+        # The bot's purchase handler already raises ``BackendClientError`` on
+        # the 502 response and edits the user's original message to the
+        # ``vpn_provider_unavailable`` text ("Похоже, что-то пошло не так..."),
+        # which is enough. Adding an outbox message on top means the user
+        # sees N+1 notifications (where N was up to the bot's HTTP retry
+        # count) — the original complaint that surfaced this whole change.
 
         await business_log(
             self.session,
