@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<meta name="robots" content="index, follow">
+<meta name="description" content="Как подключиться к PIX-VPN: список приложений для iOS, Android, Windows, macOS и Linux + пошаговая инструкция, как вставить ключ.">
+<title>Как подключиться · PIX-VPN</title>
+<link rel="canonical" href="https://pix-app.xyz/how-to-connect">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-alt: #161b22;
+    --bg-code: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-hover: #79b8ff;
+    --success: #3fb950;
+    --warn: #d29922;
+    --max-width: 760px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #ffffff;
+      --bg-alt: #f6f8fa;
+      --bg-code: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-muted: #59636e;
+      --accent: #0969da;
+      --accent-hover: #0550ae;
+      --success: #1a7f37;
+      --warn: #9a6700;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  header.site {
+    background: var(--bg-alt);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+  }
+  header.site .inner {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header.site .brand {
+    font-weight: 700;
+    font-size: 1.05em;
+    letter-spacing: -0.01em;
+  }
+  header.site nav a {
+    color: var(--text-muted);
+    text-decoration: none;
+    margin-left: 18px;
+  }
+  header.site nav a:hover { color: var(--accent); }
+
+  main {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+
+  h1, h2, h3, h4 {
+    line-height: 1.25;
+    margin-top: 1.6em;
+    margin-bottom: 0.6em;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+  }
+  h1 { font-size: 2.1em; margin-top: 0.2em; }
+  h2 {
+    font-size: 1.5em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 1.2em; }
+  h4 { font-size: 1.05em; color: var(--text-muted); }
+
+  p { margin: 0.9em 0; }
+  ul, ol { padding-left: 1.5em; margin: 0.9em 0; }
+  li { margin: 0.35em 0; }
+  li > p { margin: 0.4em 0; }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2.4em 0;
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s ease;
+  }
+  a:hover { border-bottom-color: var(--accent); }
+
+  code, pre, kbd {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.92em;
+  }
+  code {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.15em 0.4em;
+    word-break: break-word;
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    line-height: 1.5;
+    margin: 1.1em 0;
+  }
+  pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 0.92em;
+  }
+
+  blockquote {
+    margin: 1.2em 0;
+    padding: 0.6em 1.2em;
+    border-left: 4px solid var(--accent);
+    background: var(--bg-alt);
+    color: var(--text);
+    border-radius: 0 8px 8px 0;
+  }
+  blockquote p:first-child { margin-top: 0; }
+  blockquote p:last-child { margin-bottom: 0; }
+  blockquote strong { color: var(--accent); }
+
+  .toc {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 1.6em 0 2em;
+  }
+  .toc-title {
+    font-weight: 700;
+    font-size: 0.95em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .toc ol {
+    margin: 0;
+    padding-left: 1.4em;
+  }
+  .toc a { color: var(--text); }
+  .toc a:hover { color: var(--accent); }
+
+  footer {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 20px;
+    color: var(--text-muted);
+    font-size: 0.9em;
+    text-align: center;
+  }
+
+  .platform-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 1em 0 1.6em;
+  }
+  .platform-card {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .platform-card h4 {
+    margin: 0 0 8px;
+    font-size: 1em;
+    color: var(--text);
+  }
+  .platform-card ul {
+    margin: 0;
+    padding-left: 1.2em;
+    font-size: 0.95em;
+  }
+  .platform-card li { margin: 0.25em 0; }
+
+  /* Smooth anchor scrolling with header offset. */
+  html { scroll-behavior: smooth; }
+  :target { scroll-margin-top: 80px; }
+</style>
+</head>
+<body>
+<header class="site">
+  <div class="inner">
+    <div class="brand">PIX-VPN</div>
+    <nav>
+      <a href="https://t.me/pix_vpn_robot" rel="noopener">Бот</a>
+      <a href="mailto:support@pix-app.xyz">Поддержка</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1>Как подключиться к PIX-VPN</h1>
+
+  <p>После оплаты бот пришлёт вам <strong>ключ</strong> — это длинная ссылка, которая начинается с <code>vless://...</code> или <code>https://sub.northline-vpn.xyz/...</code>. Сам по себе ключ ничего не делает — его нужно вставить в <strong>VPN-приложение</strong> (клиент). Ниже — список приложений и пошаговые инструкции для каждой платформы.</p>
+
+  <nav class="toc" aria-label="Содержание">
+    <div class="toc-title">Содержание</div>
+    <ol>
+      <li><a href="#apps">Какое приложение выбрать</a></li>
+      <li><a href="#key">Где взять ваш ключ</a></li>
+      <li><a href="#connect">Подключение — пошагово</a></li>
+      <li><a href="#subscription">Подписочные ссылки</a></li>
+      <li><a href="#troubleshooting">Частые проблемы</a></li>
+      <li><a href="#links">Полезные ссылки</a></li>
+    </ol>
+  </nav>
+
+  <h2 id="apps">1. Какое приложение выбрать</h2>
+  <p>Все перечисленные клиенты — <strong>бесплатные</strong> и работают с нашими ключами. Выбирайте по своему устройству и удобству.</p>
+
+  <div class="platform-grid">
+    <div class="platform-card">
+      <h4>📱 iPhone / iPad (iOS)</h4>
+      <ul>
+        <li><a href="https://apps.apple.com/app/v2raytun/id6476628951" rel="noopener">V2RayTun</a> — на русском, удобный</li>
+        <li><a href="https://apps.apple.com/app/happ-proxy-utility/id6504287215" rel="noopener">Happ</a> — минималистичный</li>
+        <li><a href="https://apps.apple.com/app/streisand/id6450534064" rel="noopener">Streisand</a> — для опытных</li>
+        <li><a href="https://apps.apple.com/app/shadowrocket/id932747118" rel="noopener">Shadowrocket</a> — платный (~$3)</li>
+      </ul>
+    </div>
+    <div class="platform-card">
+      <h4>🤖 Android</h4>
+      <ul>
+        <li><a href="https://play.google.com/store/apps/details?id=com.v2raytun.android" rel="noopener">V2RayTun</a> — рекомендуем</li>
+        <li><a href="https://play.google.com/store/apps/details?id=app.hiddify.com" rel="noopener">Hiddify</a> — простой и стабильный</li>
+        <li><a href="https://play.google.com/store/apps/details?id=com.happproxy" rel="noopener">Happ</a> — минималистичный</li>
+        <li><a href="https://play.google.com/store/apps/details?id=com.v2ray.ang" rel="noopener">v2rayNG</a> — много настроек</li>
+      </ul>
+    </div>
+    <div class="platform-card">
+      <h4>🪟 Windows</h4>
+      <ul>
+        <li><a href="https://hiddify.com/app/" rel="noopener">Hiddify Next</a> — рекомендуем</li>
+        <li><a href="https://github.com/MatsuriDayo/nekoray/releases" rel="noopener">Nekoray</a> — для опытных</li>
+        <li><a href="https://github.com/2dust/v2rayN/releases" rel="noopener">v2rayN</a> — классический</li>
+      </ul>
+    </div>
+    <div class="platform-card">
+      <h4>🍎 macOS</h4>
+      <ul>
+        <li><a href="https://apps.apple.com/app/v2raytun/id6476628951" rel="noopener">V2RayTun</a> — на русском</li>
+        <li><a href="https://hiddify.com/app/" rel="noopener">Hiddify</a> — стабильный</li>
+        <li><a href="https://apps.apple.com/app/foxray/id6448898396" rel="noopener">FoXray</a> — лёгкий клиент</li>
+      </ul>
+    </div>
+    <div class="platform-card">
+      <h4>🐧 Linux</h4>
+      <ul>
+        <li><a href="https://hiddify.com/app/" rel="noopener">Hiddify Next</a> — <code>.AppImage</code> / <code>.deb</code></li>
+        <li><a href="https://github.com/MatsuriDayo/nekoray/releases" rel="noopener">Nekoray</a> — AppImage / сборка</li>
+      </ul>
+    </div>
+    <div class="platform-card">
+      <h4>📺 Smart-TV (Android TV)</h4>
+      <ul>
+        <li>V2RayTun или v2rayNG через Google Play / Aurora Store</li>
+        <li>На TV без Google Play — поставьте <code>.apk</code> с официального сайта вручную</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 id="key">2. Где взять ваш ключ</h2>
+  <p>После успешной оплаты в боте <a href="https://t.me/pix_vpn_robot" rel="noopener">@pix_vpn_robot</a> вы увидите сообщение:</p>
+
+<pre><code>✅ Вы успешно оплатили заказ #N
+
+Ваш ключ:
+vless://xxxxxxxx@server.northline-vpn.xyz:443?...#PIX-VPN</code></pre>
+
+  <p>или</p>
+
+<pre><code>Ваш ключ:
+https://sub.northline-vpn.xyz/s/xxxxxxxxxxxx</code></pre>
+
+  <p><strong>Скопируйте всю эту ссылку целиком</strong> — это и есть ваш VPN-ключ.</p>
+
+  <blockquote>
+    <p><strong>Важно</strong>: ключ можно использовать на нескольких устройствах одновременно (если вы выбрали тариф с 2+ устройствами). Подписку <strong>не нужно</strong> покупать отдельно для каждого телефона/ноутбука — просто вставьте один и тот же ключ во все ваши клиенты.</p>
+  </blockquote>
+
+  <h2 id="connect">3. Подключение — пошагово</h2>
+  <p>Главный приём универсальный для <strong>всех</strong> приложений ниже:</p>
+
+  <blockquote>
+    <p><strong>Скопировали ключ → открыли приложение → нажали «+» (или «Импорт», «Добавить из буфера обмена») → подключились.</strong></p>
+  </blockquote>
+
+  <p>Большинство клиентов <strong>сами читают ссылку из буфера обмена</strong> — нужно только тапнуть по плюсу. Подробности по конкретным приложениям:</p>
+
+  <h3 id="v2raytun">V2RayTun (iOS / Android / macOS)</h3>
+  <ol>
+    <li>Скопируйте ключ из бота (зажмите на ссылке → «Копировать»).</li>
+    <li>Откройте <strong>V2RayTun</strong>.</li>
+    <li>Нажмите <strong>«+»</strong> в правом верхнем углу.</li>
+    <li>Выберите <strong>«Добавить из буфера обмена»</strong> (или «Импорт из буфера обмена», в зависимости от языка). Приложение само подхватит ссылку.</li>
+    <li>В списке появится новый профиль — обычно с именем <strong>PIX-VPN</strong>.</li>
+    <li>Нажмите на этот профиль, чтобы он стал активным (подсветится).</li>
+    <li>Нажмите большую кнопку <strong>подключения</strong> в центре экрана.</li>
+    <li>На iOS система спросит разрешение «Добавить VPN-конфигурацию» — нажмите <strong>Разрешить</strong> и введите код-пароль/Face ID.</li>
+    <li>Готово — иконка VPN появится в статус-баре. Можно проверить, что всё работает: откройте <a href="https://2ip.ru" rel="noopener">2ip.ru</a> — страна должна измениться.</li>
+  </ol>
+
+  <h3 id="happ">Happ (iOS / Android)</h3>
+  <ol>
+    <li>Скопируйте ключ из бота.</li>
+    <li>Откройте <strong>Happ</strong>.</li>
+    <li>Нажмите <strong>«+»</strong> или иконку <strong>«Импортировать»</strong>.</li>
+    <li>Выберите <strong>«Из буфера обмена»</strong> — Happ вставит ссылку автоматически.</li>
+    <li>Тапните по созданному профилю → <strong>подключиться</strong>.</li>
+    <li>Разрешите добавление VPN-конфигурации (запрос системы).</li>
+  </ol>
+
+  <h3 id="hiddify">Hiddify (Android / Windows / macOS / Linux)</h3>
+  <ol>
+    <li>Скопируйте ключ.</li>
+    <li>Откройте <strong>Hiddify</strong>.</li>
+    <li>Нажмите <strong>«+»</strong> (или «Add a profile», «Добавить профиль»).</li>
+    <li>Выберите <strong>«Add from clipboard»</strong> или <strong>«Import from clipboard»</strong>.</li>
+    <li>Профиль появится в списке. Нажмите на большую кнопку питания в центре экрана, чтобы подключиться.</li>
+  </ol>
+
+  <h3 id="shadowrocket">Shadowrocket (iOS, платный)</h3>
+  <ol>
+    <li>Скопируйте ключ из бота.</li>
+    <li>Откройте <strong>Shadowrocket</strong>.</li>
+    <li>На главном экране сверху появится плашка <strong>«Add a server from clipboard?»</strong> — нажмите <strong>Add</strong>.</li>
+    <li>Если плашки нет — нажмите <strong>«+»</strong> в правом верхнем углу → <strong>«Type: VLESS»</strong> → вставьте ссылку.</li>
+    <li>Включите тумблер рядом с сервером.</li>
+    <li>Нажмите большой переключатель в верхней части экрана (Not Connected → Connected).</li>
+  </ol>
+
+  <h3 id="streisand">Streisand (iOS)</h3>
+  <ol>
+    <li>Скопируйте ключ.</li>
+    <li>Откройте <strong>Streisand</strong>.</li>
+    <li>Нажмите <strong>«+»</strong> → <strong>«Add from Clipboard»</strong>.</li>
+    <li>Выберите профиль из списка.</li>
+    <li>Нажмите тумблер «Connect».</li>
+  </ol>
+
+  <h3 id="v2rayng">v2rayNG (Android)</h3>
+  <ol>
+    <li>Скопируйте ключ.</li>
+    <li>Откройте <strong>v2rayNG</strong>.</li>
+    <li>В правом верхнем углу нажмите <strong>«+»</strong> → <strong>«Импорт config-а из буфера обмена»</strong> (Import config from Clipboard).</li>
+    <li>Появится профиль «PIX-VPN».</li>
+    <li>Долгим нажатием выберите его как активный.</li>
+    <li>Нажмите большую кнопку <strong>V</strong> в правом нижнем углу.</li>
+    <li>Разрешите создание VPN-подключения.</li>
+  </ol>
+
+  <h3 id="windows">Hiddify Next / Nekoray / v2rayN (Windows)</h3>
+  <ol>
+    <li>Скопируйте ключ.</li>
+    <li>Откройте приложение.</li>
+    <li><strong>Hiddify Next</strong>: «Add Profile» → «From Clipboard».<br>
+        <strong>Nekoray</strong>: меню <strong>Program → Add profile from clipboard</strong> (или <kbd>Ctrl+V</kbd>).<br>
+        <strong>v2rayN</strong>: <strong>Серверы → Импорт из буфера обмена</strong>.</li>
+    <li>Выберите профиль в списке → <strong>Start</strong> / <strong>Подключить</strong>.</li>
+    <li>На первом запуске Windows может спросить про сетевую конфигурацию — разрешите.</li>
+  </ol>
+
+  <h2 id="subscription">4. Если ключ — это подписочная ссылка</h2>
+  <p>Иногда вместо <code>vless://...</code> бот присылает ссылку вида <code>https://sub.northline-vpn.xyz/s/...</code>. Это <strong>подписка</strong>: одна ссылка, по которой клиент сам забирает один или несколько серверов и обновляет их, если они меняются. Принцип тот же, но в приложении пункт меню называется по-другому:</p>
+  <ul>
+    <li><strong>V2RayTun / Happ / Hiddify</strong>: «+» → <strong>«Добавить подписку»</strong> (Add Subscription) → вставить ссылку → <strong>Обновить</strong>. После обновления в списке появятся серверы.</li>
+    <li><strong>Shadowrocket</strong>: «+» → <strong>Subscribe</strong> → вставить URL.</li>
+    <li><strong>v2rayN / v2rayNG</strong>: меню «Подписки» → «Добавить» → вставить URL → <strong>Обновить подписку из буфера обмена</strong>.</li>
+  </ul>
+  <p>Дальше — выбираете сервер и подключаетесь.</p>
+
+  <h2 id="troubleshooting">5. Частые проблемы</h2>
+
+  <p><strong>Не подключается, бесконечная загрузка.</strong><br>
+  Закройте VPN, выключите-включите Wi-Fi / мобильный интернет, попробуйте ещё раз. Если не помогает — попробуйте другое приложение из списка выше: иногда конкретный клиент конфликтует с конкретной версией iOS или Android.</p>
+
+  <p><strong>«Конфигурация неверна / Invalid config».</strong><br>
+  Скорее всего, при копировании ключа попал лишний символ (пробел, кавычка, перенос строки). Зайдите в бота, ещё раз скопируйте ссылку целиком, удалите старый профиль в приложении и добавьте заново.</p>
+
+  <p><strong>Подключился, но интернет не работает.</strong><br>
+  Проверьте, что профиль в приложении действительно <strong>активен</strong> (выделен галочкой / точкой). Иногда после добавления нужно нажать на профиль ещё раз. Также проверьте, что <strong>сама подписка не закончилась</strong> — в боте в разделе «Профиль» видно дату окончания.</p>
+
+  <p><strong>На iOS просит «доверить разработчику».</strong><br>
+  Это нормально только для приложений, которые ставятся <strong>не из App Store</strong>. Все приложения из нашего списка — официальные, в App Store. Если просит такое окно, значит вы поставили приложение через TestFlight / .ipa — зайдите в <strong>Настройки → Основные → VPN и управление устройством</strong> и доверьте разработчика. Но проще поставить версию из App Store.</p>
+
+  <p><strong>Слишком долго грузятся сайты / низкая скорость.</strong><br>
+  Скорость зависит от конкретного приложения и от вашего интернета. Попробуйте сменить клиент (V2RayTun ↔ Happ ↔ Hiddify) — иногда помогает. Также не забывайте, что на тарифе с несколькими устройствами все они делят пропускную способность.</p>
+
+  <p><strong>Не получается с первого раза.</strong><br>
+  Напишите нам в <strong>поддержку прямо в боте</strong>: «Поддержка → Создать тикет». Опишите, какое у вас устройство, какое приложение, и что именно не работает (скриншот ошибки приветствуется). Мы обычно отвечаем в течение нескольких часов.</p>
+
+  <h2 id="links">6. Полезные ссылки</h2>
+  <ul>
+    <li>Бот: <a href="https://t.me/pix_vpn_robot" rel="noopener">@pix_vpn_robot</a></li>
+    <li>Поддержка: внутри бота (раздел «Поддержка») или email <a href="mailto:support@pix-app.xyz">support@pix-app.xyz</a></li>
+    <li>Проверить свой IP / страну: <a href="https://2ip.ru" rel="noopener">2ip.ru</a>, <a href="https://whoer.net" rel="noopener">whoer.net</a></li>
+  </ul>
+
+  <p style="margin-top:2em; font-size:1.05em;">Удачного интернета без границ! 🌍</p>
+</main>
+
+<footer>
+  © PIX-VPN · <a href="https://t.me/pix_vpn_robot" rel="noopener">@pix_vpn_robot</a>
+</footer>
+</body>
+</html>

@@ -130,6 +130,10 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
       - ./nginx/certbot:/var/www/certbot:ro
+      # Static landing pages (e.g. /how-to-connect → user-facing setup guide).
+      # Each subdir under static/ is mounted at /usr/share/nginx/static/<name>
+      # and exposed via an explicit ``location`` block in conf.d/00-default.conf.
+      - ./nginx/static:/usr/share/nginx/static:ro
     depends_on:
       - backend
       - admin
