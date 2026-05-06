@@ -244,7 +244,9 @@ class BackendClient:
     async def get_text(self, key: str) -> dict[str, Any] | None:
         """GET /api/bot/texts/{key} — returns the full record or ``None``.
 
-        Shape: ``{"key", "value_html", "media_file_id"|None, "media_kind"|None}``.
+        Shape: ``{"key", "value_html", "media_file_id"|None, "media_kind"|None,
+        "kind", "icon_custom_emoji_id"|None, "url"|None, ...}``. Forwarded
+        as-is from the backend ``TextResponse``.
         """
         try:
             response = await self._request("GET", f"/api/bot/texts/{key}")
@@ -258,7 +260,24 @@ class BackendClient:
         return data
 
     async def get_all_texts(self) -> dict[str, dict[str, Any]]:
-        """GET /api/bot/texts — returns ``{key: {value_html, media_file_id, media_kind}}``."""
+        """GET /api/bot/texts — returns ``{key: full_record}``.
+
+        Each record carries ``value_html`` plus optional ``media_file_id`` /
+        ``media_kind`` (Stage 5 — media attachments) and Stage 6 fields:
+
+        - ``kind``: ``'message'`` (default) or ``'button'`` — the discriminator
+          backend seeds. Buttons have plain-text labels, messages carry HTML.
+        - ``icon_custom_emoji_id``: optional Telegram premium-emoji document id
+          for buttons (rendered as the icon next to the label).
+        - ``url``: optional outbound URL for ``kind='button'`` rows. When set,
+          the bot renders the button as a URL button instead of a callback one.
+
+        Earlier versions of this method dropped everything except
+        ``value_html`` / ``media_*`` — which silently broke any handler that
+        relied on ``icon_custom_emoji_id`` or ``url`` (e.g. the «О проекте»
+        screen, whose URL buttons quietly degraded to callback buttons that
+        looked like dead links). We now forward the full record.
+        """
         response = await self._request("GET", "/api/bot/texts")
         data = response.json()
         out: dict[str, dict[str, Any]] = {}
@@ -274,6 +293,9 @@ class BackendClient:
                     "value_html": value_html,
                     "media_file_id": item.get("media_file_id"),
                     "media_kind": item.get("media_kind"),
+                    "kind": item.get("kind") or "message",
+                    "icon_custom_emoji_id": item.get("icon_custom_emoji_id"),
+                    "url": item.get("url"),
                 }
         return out
 
