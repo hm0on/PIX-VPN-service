@@ -120,7 +120,27 @@ async def _pay_with_balance(
     duration_id: int,
     promo_id: int | None = None,
 ) -> None:
-    """Synchronous balance-paid purchase. On success the key is rendered now."""
+    """Synchronous balance-paid purchase.
+
+    UX is **one** chat message edited twice:
+
+    1. ``key_issuing`` placeholder ("⏳ Выдаём ключ...") is rendered before
+       we hit the backend so the user sees an immediate state change while
+       NorthLine provisions the key (can take a few seconds).
+    2. On success we edit the same message again to ``key_issued`` with the
+       order number and the key URL, plus the post-success keyboard
+       (« Как подключиться » + « В меню »).
+
+    On error one of the ``except`` branches edits the message to a
+    user-friendly error text — overwriting the placeholder. There is **no**
+    second sendMessage from the backend; the outbox enqueue that used to
+    live in ``BalanceService.purchase_with_balance`` was removed for
+    exactly this reason (it produced a duplicate message on top of the
+    edit).
+    """
+    placeholder_text = await texts.get("key_issuing")
+    await safe_edit_or_answer(callback, placeholder_text, reply_markup=None)
+
     try:
         result = await api.purchase_with_balance(
             tg_id, tariff_id, duration_id, promo_id=promo_id
@@ -144,15 +164,27 @@ async def _pay_with_balance(
         )
         return
 
+    # Backend returns:
+    #   {"subscription": {..., "key_url": "..."},
+    #    "balance_after_kopecks": ...,
+    #    "payment_id": ...}
+    sub_payload: dict[str, Any] = result.get("subscription") or {}
+    payment_id = result.get("payment_id", "")
+    key_url = sub_payload.get("key_url", "")
+
     text = await texts.get(
         "key_issued",
-        key_url=result.get("key_url", ""),
-        payment_id=result.get("payment_id", ""),
-        subscription_id=result.get("subscription_id", ""),
-        amount=int(result.get("amount_kopecks", 0)) // 100,
+        key_url=key_url,
+        payment_id=payment_id,
+        subscription_id=sub_payload.get("id", ""),
+        amount=int(result.get("balance_after_kopecks", 0)) // 100,
     )
     await safe_edit_or_answer(
-        callback, text, reply_markup=await key_issued_kb(settings.HOWTO_CONNECT_URL, text_service=texts)
+        callback,
+        text,
+        reply_markup=await key_issued_kb(
+            settings.HOWTO_CONNECT_URL, text_service=texts
+        ),
     )
     await state.clear()
     await bot_log(
@@ -163,8 +195,8 @@ async def _pay_with_balance(
         message="Subscription paid from balance",
         context={
             "tg_id": tg_id,
-            "subscription_id": result.get("subscription_id"),
-            "payment_id": result.get("payment_id"),
+            "subscription_id": sub_payload.get("id"),
+            "payment_id": payment_id,
         },
     )
 

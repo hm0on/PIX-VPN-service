@@ -82,6 +82,7 @@ _HARDCODED_FALLBACKS: dict[str, str] = {
         "Сумма: <b>{amount} ₽</b>\n\n"
         "Нажмите «Оплатить», чтобы перейти на страницу провайдера."
     ),
+    "key_issuing": "⏳ <b>Выдаём ключ...</b>",
     "key_issued": (
         "✅ Вы успешно оплатили заказ <b>#{payment_id}</b>\n\n"
         "Ваш ключ:\n<code>{key_url}</code>"

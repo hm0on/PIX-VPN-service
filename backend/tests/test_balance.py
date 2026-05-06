@@ -83,6 +83,11 @@ async def test_purchase_with_balance_happy(client, auth_headers, seed_db, app): 
     assert body["subscription"]["status"] == "active"
     assert body["subscription"]["key_url"] == "https://sub.pixio.icu/balance001"
     assert body["balance_after_kopecks"] == 50000
+    # ``payment_id`` is exposed at the top level so the bot can render it
+    # in the post-success "✅ Вы успешно оплатили заказ #N" message that
+    # it edits in place. Must be a positive int.
+    assert isinstance(body["payment_id"], int)
+    assert body["payment_id"] > 0
 
     # Check user balance was actually debited.
     r2 = await client.get("/api/bot/users/6001/balance", headers=auth_headers)

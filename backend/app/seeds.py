@@ -124,6 +124,15 @@ DEFAULT_TEXTS: list[dict[str, str]] = [
     },
     # ---------- Stage 2: keys / payments / profile / catalog ----------
     {
+        "key": "key_issuing",
+        "value_html": "⏳ <b>Выдаём ключ...</b>",
+        "description": (
+            "Промежуточное сообщение, которое бот показывает между "
+            "нажатием «Оплатить с баланса» и фактической выдачей ключа "
+            "(пока NorthLine провижинит подписку, ~1-3 сек)."
+        ),
+    },
+    {
         "key": "key_issued",
         "value_html": (
             "✅ Вы успешно оплатили заказ <b>#{payment_id}</b>\n\n"

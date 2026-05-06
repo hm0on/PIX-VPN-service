@@ -30,7 +30,7 @@ async def purchase_with_balance(
             error_code="user_not_found",
         )
     service = BalanceService(session, northline)
-    sub, balance_after = await service.purchase_with_balance(
+    sub, balance_after, payment_id = await service.purchase_with_balance(
         user=user,
         tariff_id=payload.tariff_id,
         duration_id=payload.duration_id,
@@ -38,4 +38,5 @@ async def purchase_with_balance(
     return PurchaseWithBalanceResponse(
         subscription=SubscriptionResponse.model_validate(sub),
         balance_after_kopecks=balance_after,
+        payment_id=payment_id,
     )

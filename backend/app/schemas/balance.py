@@ -20,3 +20,7 @@ class PurchaseWithBalanceRequest(BaseModel):
 class PurchaseWithBalanceResponse(BaseModel):
     subscription: SubscriptionResponse
     balance_after_kopecks: int
+    # ``payment_id`` is the row id of the internal Payment created by this
+    # balance-paid purchase. The bot uses it to render the order number in
+    # the success message ("✅ Вы успешно оплатили заказ #{payment_id}").
+    payment_id: int

@@ -367,10 +367,21 @@ class BackendClient:
     ) -> dict[str, Any]:
         """POST /api/bot/purchase/balance — synchronous balance-paid purchase.
 
-        On success returns ``{"subscription_id": ..., "key_url": "...",
-        "payment_id": ..., "amount_kopecks": ...}``. On error raises
-        ``BackendClientError`` with ``error_code`` ∈ {``insufficient_balance``,
-        ``vpn_provider_unavailable``, ``vpn_provider_unavailable_refunded``}.
+        On success returns the JSON body of ``PurchaseWithBalanceResponse``:
+
+        ``{
+            "subscription": {... including "key_url": "https://..."},
+            "balance_after_kopecks": int,
+            "payment_id": int,
+        }``
+
+        Note: there is no top-level ``key_url`` — read it from the nested
+        ``subscription`` object. ``payment_id`` is exposed at the top level
+        so the bot can render ``"#{payment_id}"`` in the success message.
+
+        On error raises ``BackendClientError`` with ``error_code`` ∈
+        {``insufficient_balance``, ``vpn_provider_unavailable``,
+        ``vpn_provider_unavailable_refunded``}.
         """
         body: dict[str, Any] = {
             "tg_id": tg_id,

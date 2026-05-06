@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.core.exceptions import (
     InsufficientBalanceError,
     NorthLineClientError,
@@ -25,7 +24,6 @@ from app.db.models.balance_transaction import (
     BT_REASON_PURCHASE,
     BT_REASON_REFUND,
 )
-from app.db.models.outbox import OUTBOX_MSG_TEXT
 from app.db.models.payment import (
     PAYMENT_PROVIDER_BALANCE,
     PAYMENT_PURPOSE_SUBSCRIPTION,
@@ -40,7 +38,6 @@ from app.db.models.subscription import (
 )
 from app.db.models.user import User
 from app.repositories.balance_transaction_repo import BalanceTransactionRepository
-from app.repositories.outbox_repo import OutboxRepository
 from app.repositories.payment_repo import PaymentRepository
 from app.repositories.subscription_repo import SubscriptionRepository
 from app.services.northline_client import NorthLineClient
@@ -61,7 +58,6 @@ class BalanceService:
         self.subs_repo = SubscriptionRepository(session)
         self.payments_repo = PaymentRepository(session)
         self.bt_repo = BalanceTransactionRepository(session)
-        self.outbox_repo = OutboxRepository(session)
 
     async def get_balance_kopecks(self, *, user: User) -> int:
         return int(user.balance_kopecks)
@@ -135,10 +131,17 @@ class BalanceService:
         user: User,
         tariff_id: int,
         duration_id: int,
-    ) -> tuple[Subscription, int]:
+    ) -> tuple[Subscription, int, int]:
         """Atomic purchase-with-balance flow.
 
-        Returns (subscription, balance_after_kopecks).
+        Returns (subscription, balance_after_kopecks, payment_id).
+
+        ``payment_id`` is the row id of the internal Payment created by this
+        flow; the bot uses it to render ``"#{payment_id}"`` in the success
+        message it edits in-place after this call returns. We deliberately
+        do NOT enqueue an outbox row for the success message here — the bot
+        owns that UX (one edited message, not a fresh sendMessage on top of
+        it). See `bot/app/handlers/purchase.py:_pay_with_balance`.
 
         Raises InsufficientBalanceError, TariffNotFoundError, TariffDurationNotFoundError,
         NorthLineUnavailableError.
@@ -256,27 +259,10 @@ class BalanceService:
         )
         await self.session.flush()
 
-        # Outbox: send the key.
-        settings = get_settings()
-        howto_url = settings.howto_connect_url or ""
-        await self.outbox_repo.enqueue(
-            user_id=locked_user.id,
-            chat_id=locked_user.tg_id,
-            message_type=OUTBOX_MSG_TEXT,
-            payload={
-                "text_key": "key_issued",
-                "format_kwargs": {
-                    "payment_id": payment.id,
-                    "key_url": sub_db.key_url,
-                },
-                "parse_mode": "HTML",
-                "buttons": (
-                    [{"text": "Как подключиться", "url": howto_url}]
-                    if howto_url
-                    else []
-                ),
-            },
-        )
+        # NB: no outbox row for the success message — the bot edits the
+        # original payment-method message in-place once this method returns
+        # (see ``bot/app/handlers/purchase.py:_pay_with_balance``). Enqueueing
+        # here would produce a duplicate sendMessage on top of the edit.
 
         await business_log(
             self.session,
@@ -292,7 +278,7 @@ class BalanceService:
         )
         await self.session.commit()
         await self.session.refresh(sub_db)
-        return sub_db, balance_after
+        return sub_db, balance_after, payment.id
 
     # ---------- internals ----------
 
