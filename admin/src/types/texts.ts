@@ -13,6 +13,10 @@ export interface BotText {
   // seeding and is not editable from the UI.
   kind: TextKind;
   icon_custom_emoji_id: string | null;
+  // Optional outbound URL for kind='button' rows. When set, the bot renders
+  // the button as a URL button instead of a callback button. Ignored for
+  // kind='message' rows.
+  url: string | null;
   updated_at: string | null;
 }
 
@@ -22,4 +26,5 @@ export interface BotTextUpdatePayload {
   media_file_id?: string | null;
   media_kind?: MediaKind | null;
   icon_custom_emoji_id?: string | null;
+  url?: string | null;
 }

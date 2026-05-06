@@ -43,6 +43,7 @@ export default function BotTexts() {
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [draft, setDraft] = useState<string>('');
   const [iconEmojiId, setIconEmojiId] = useState<string>('');
+  const [urlDraft, setUrlDraft] = useState<string>('');
   const [mediaFileId, setMediaFileId] = useState<string>('');
   const [mediaKind, setMediaKind] = useState<MediaKind>('photo');
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -73,12 +74,14 @@ export default function BotTexts() {
   useEffect(() => {
     setDraft(selected?.value_html ?? '');
     setIconEmojiId(selected?.icon_custom_emoji_id ?? '');
+    setUrlDraft(selected?.url ?? '');
     setMediaFileId(selected?.media_file_id ?? '');
     setMediaKind((selected?.media_kind as MediaKind | null) ?? 'photo');
   }, [
     selected?.key,
     selected?.value_html,
     selected?.icon_custom_emoji_id,
+    selected?.url,
     selected?.media_file_id,
     selected?.media_kind,
   ]);
@@ -88,18 +91,21 @@ export default function BotTexts() {
       key,
       value_html,
       icon_custom_emoji_id,
+      url,
       media_file_id,
       media_kind,
     }: {
       key: string;
       value_html: string;
       icon_custom_emoji_id: string | null;
+      url: string | null;
       media_file_id: string | null;
       media_kind: MediaKind | null;
     }) =>
       updateText(key, {
         value_html,
         icon_custom_emoji_id,
+        url,
         media_file_id,
         media_kind,
       }),
@@ -114,17 +120,20 @@ export default function BotTexts() {
     if (!selected) return;
     const isButton = selected.kind === 'button';
     // For button rows we never send media_* — buttons can't carry an
-    // attachment. The icon-id pair always travels (null clears it).
+    // attachment. The icon-id and URL pair always travels (null clears it).
     const trimmedFileId = mediaFileId.trim();
     const fileIdPayload = !isButton && trimmedFileId.length > 0 ? trimmedFileId : null;
     const kindPayload = !isButton && trimmedFileId.length > 0 ? mediaKind : null;
     const trimmedIcon = iconEmojiId.trim();
     const iconPayload = isButton && trimmedIcon.length > 0 ? trimmedIcon : null;
+    const trimmedUrl = urlDraft.trim();
+    const urlPayload = isButton && trimmedUrl.length > 0 ? trimmedUrl : null;
 
     updateMut.mutate({
       key: selected.key,
       value_html: draft,
       icon_custom_emoji_id: iconPayload,
+      url: urlPayload,
       media_file_id: fileIdPayload,
       media_kind: kindPayload,
     });
@@ -192,6 +201,14 @@ export default function BotTexts() {
                             className="rounded bg-amber-500/15 px-1 text-[9px] uppercase tracking-wider text-amber-600 dark:text-amber-400"
                           >
                             emoji
+                          </span>
+                        ) : null}
+                        {t.url ? (
+                          <span
+                            title={`url: ${t.url}`}
+                            className="rounded bg-sky-500/15 px-1 text-[9px] uppercase tracking-wider text-sky-600 dark:text-sky-400"
+                          >
+                            url
                           </span>
                         ) : null}
                       </div>
@@ -267,6 +284,8 @@ export default function BotTexts() {
                 onLabelChange={setDraft}
                 iconEmojiId={iconEmojiId}
                 onIconEmojiIdChange={setIconEmojiId}
+                url={urlDraft}
+                onUrlChange={setUrlDraft}
               />
             ) : (
               <>
@@ -347,6 +366,8 @@ interface ButtonEditorProps {
   onLabelChange: (v: string) => void;
   iconEmojiId: string;
   onIconEmojiIdChange: (v: string) => void;
+  url: string;
+  onUrlChange: (v: string) => void;
 }
 
 function ButtonEditor({
@@ -354,6 +375,8 @@ function ButtonEditor({
   onLabelChange,
   iconEmojiId,
   onIconEmojiIdChange,
+  url,
+  onUrlChange,
 }: ButtonEditorProps) {
   return (
     <div className="space-y-4">
@@ -370,6 +393,39 @@ function ButtonEditor({
           Стандартные эмодзи (🚀, ✅) работают, кастомные премиум-эмодзи нужно прикрепить
           через поле ниже.
         </p>
+      </div>
+
+      <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium">URL (опционально)</h3>
+            <p className="text-xs text-muted-foreground">
+              Если задано — кнопка станет ссылкой и откроет этот URL вместо
+              callback-действия. Например, для кнопок раздела «О проекте»
+              (<code>btn.about.privacy</code>, <code>btn.about.terms</code>,
+              <code> btn.about.channel</code>). Допустимы схемы{' '}
+              <code>https://</code>, <code>http://</code>, <code>tg://</code>.
+            </p>
+          </div>
+          {url.trim().length > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onUrlChange('')}
+              title="Очистить URL"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+        <Input
+          value={url}
+          onChange={(e) => onUrlChange(e.target.value)}
+          placeholder="https://example.com или tg://resolve?domain=..."
+          className="font-mono text-xs"
+          maxLength={512}
+        />
       </div>
 
       <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3">

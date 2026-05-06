@@ -23,6 +23,7 @@ class AdminText(BaseModel):
     media_kind: MediaKind | None = None
     kind: TextKind = "message"
     icon_custom_emoji_id: str | None = None
+    url: str | None = None
     updated_at: datetime
     updated_by: str | None = None
 
@@ -54,6 +55,10 @@ class AdminTextPatch(BaseModel):
     media_file_id: str | None = Field(default=None, max_length=256)
     media_kind: MediaKind | None = None
     icon_custom_emoji_id: str | None = Field(default=None, max_length=64)
+    # Outbound URL for kind='button' rows. Pass an empty string or null to
+    # clear (and turn the button back into a callback button). Validated
+    # below: must start with http://, https://, or tg://.
+    url: str | None = Field(default=None, max_length=512)
 
     @field_validator("media_file_id")
     @classmethod
@@ -74,6 +79,24 @@ class AdminTextPatch(BaseModel):
             return None
         v = v.strip()
         return v or None
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not (
+            v.startswith("http://")
+            or v.startswith("https://")
+            or v.startswith("tg://")
+        ):
+            raise ValueError(
+                "URL must start with http://, https://, or tg://."
+            )
+        return v
 
 
 def _looks_like_html(value: str) -> bool:

@@ -92,6 +92,11 @@ async def patch_text(
         # Buttons may have a premium-emoji icon. For messages this column is
         # always null but allowing the explicit null-set keeps the API uniform.
         row.icon_custom_emoji_id = fields["icon_custom_emoji_id"]
+    if "url" in fields:
+        # Outbound URL — only meaningful for kind='button'. For messages we
+        # still allow setting it to null so callers can use the same payload
+        # shape; the bot ignores the column for non-button rows.
+        row.url = fields["url"]
 
     # Media: must travel together. Allow both null (clear) or both set (apply).
     has_file = "media_file_id" in fields
@@ -125,6 +130,7 @@ async def patch_text(
             "media_file_id": row.media_file_id,
             "media_kind": row.media_kind,
             "icon_custom_emoji_id": row.icon_custom_emoji_id,
+            "url": row.url,
         },
     )
     await session.commit()

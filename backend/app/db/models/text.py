@@ -38,6 +38,13 @@ class Text(IntPK, Base):
         String(64), nullable=True
     )
 
+    # Optional outbound URL. Only meaningful for ``kind='button'`` rows: when
+    # present, the bot renders the button as a URL button (``url=...``)
+    # instead of a callback button. Edited from the admin UI alongside the
+    # label. Free-form, validated on write to start with ``http(s)://`` or
+    # ``tg://``.
+    url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

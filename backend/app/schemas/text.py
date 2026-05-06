@@ -21,5 +21,9 @@ class TextResponse(ORMModel):
     # know about ``kind`` see the same behaviour they used to.
     kind: str = "message"
     icon_custom_emoji_id: str | None = None
+    # Outbound URL for ``kind='button'`` rows. When set, the bot renders the
+    # button as a URL button (``url=...``) instead of a callback button.
+    # Ignored for ``message`` rows.
+    url: str | None = None
     updated_at: datetime
     updated_by: str | None = None

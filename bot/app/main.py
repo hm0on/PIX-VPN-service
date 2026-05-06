@@ -25,6 +25,7 @@ from redis.asyncio import Redis
 
 from app.api_client import BackendClient
 from app.config import Settings, get_settings
+from app.handlers import about as h_about
 from app.handlers import catalog as h_catalog
 from app.handlers import getfileid as h_getfileid
 from app.handlers import profile as h_profile
@@ -140,25 +141,22 @@ async def _build_dispatcher(
         observer.outer_middleware(sub_check)
 
     # Routers. Order matters when several routers register handlers for the
-    # same callback prefix — first registered wins. Real Stage-2 handlers
-    # are registered BEFORE stubs so the stub router only catches keys it
-    # still owns ("support", "promo", "idea", "about").
+    # same callback prefix — first registered wins. Real handlers are
+    # registered BEFORE ``h_stubs`` so any future stubbed callback can be
+    # added without re-plumbing.
     dp.include_router(h_start.router)
     dp.include_router(h_catalog.router)
     dp.include_router(h_purchase.router)
     dp.include_router(h_profile.router)
     dp.include_router(h_topup.router)
     dp.include_router(h_referral.router)
-    # Standalone promo entry from the main menu — must register before
-    # ``h_stubs`` so ``F.data == "promo"`` doesn't fall through to the
-    # "section in development" stub.
     dp.include_router(h_promo.router)
-    # Stage 4 ticket routers. Admin-side comes FIRST so its support-group
-    # filters intercept events before the user-side router (which assumes
-    # private chats). Both must register before ``h_stubs``, which still
-    # owns the legacy ``promo`` / ``about`` callbacks until later stages.
-    # /getfileid lives in support group's General topic only — register
-    # before support_admin so its narrower filter intercepts media first.
+    dp.include_router(h_about.router)
+    # Ticket routers. Admin-side comes FIRST so its support-group filters
+    # intercept events before the user-side router (which assumes private
+    # chats). /getfileid lives in support group's General topic only —
+    # register before support_admin so its narrower filter intercepts media
+    # first.
     dp.include_router(h_getfileid.router)
     dp.include_router(h_support_admin.router)
     dp.include_router(h_support.router)

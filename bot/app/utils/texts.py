@@ -44,6 +44,9 @@ class TextEntry:
     media_kind: str | None = None  # "photo" | "video" | "animation" | None
     kind: str = "message"
     icon_custom_emoji_id: str | None = None
+    # ``url`` is only meaningful for ``kind='button'`` rows: when set the bot
+    # renders the button as an outbound URL button instead of a callback one.
+    url: str | None = None
 
 
 # Hardcoded fallback for when Backend is unreachable AND no cached value.
@@ -373,6 +376,7 @@ class TextService:
                     media_kind=item.get("media_kind"),
                     kind=item.get("kind") or "message",
                     icon_custom_emoji_id=item.get("icon_custom_emoji_id"),
+                    url=item.get("url"),
                 )
                 for key, item in raw.items()
             }
@@ -432,6 +436,7 @@ class TextService:
             media_kind=entry.media_kind,
             kind=entry.kind,
             icon_custom_emoji_id=entry.icon_custom_emoji_id,
+            url=entry.url,
         )
 
     async def get_button(
@@ -463,6 +468,26 @@ class TextService:
             return ("???", None)
         label = self._format(entry.value_html, **kwargs) if kwargs else entry.value_html
         return (label, entry.icon_custom_emoji_id)
+
+    async def get_url_button(
+        self, key: str, /, **kwargs: object
+    ) -> tuple[str, str | None, str | None]:
+        """Return ``(label, icon_custom_emoji_id, url)`` for a button key.
+
+        Same lookup as :meth:`get_button` but also surfaces the optional
+        outbound URL stored on the text row. Callers decide what to do when
+        ``url`` is ``None`` (typically: render as a callback button instead).
+        Missing keys log a warning and return ``("???", None, None)``.
+        """
+        if time.monotonic() >= self._expires_at or key not in self._cache:
+            await self._refresh()
+
+        entry = self._resolve(key)
+        if entry is None:
+            log.warning("texts.missing_key", key=key)
+            return ("???", None, None)
+        label = self._format(entry.value_html, **kwargs) if kwargs else entry.value_html
+        return (label, entry.icon_custom_emoji_id, entry.url)
 
     def invalidate(self) -> None:
         """Drop the cache (forces a refresh on the next ``get``)."""
