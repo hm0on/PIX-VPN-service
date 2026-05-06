@@ -61,3 +61,4 @@ infra/redis/data/
 *.bak
 *.tmp
 .claude/settings.local.json
+.claude/
