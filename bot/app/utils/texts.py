@@ -17,6 +17,7 @@ endpoint. Stage 5 wires Redis pub/sub invalidation on top.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -26,6 +27,154 @@ from app.utils.errors import BackendUnavailableError
 from app.utils.logging import get_logger
 
 log = get_logger("bot.texts")
+
+
+# ---------------------------------------------------------------------------
+# Telegram-HTML normalization
+# ---------------------------------------------------------------------------
+#
+# Texts edited in the admin TipTap editor come out as semantic HTML — paragraphs
+# wrapped in ``<p>...</p>``, lists rendered as ``<ul><li>...</li></ul>`` etc. —
+# but Telegram's HTML parse mode only understands a tiny whitelist of inline
+# tags (``b/i/u/s/a/code/pre/blockquote/tg-spoiler/tg-emoji``). Sending a body
+# that contains ``<p>`` makes Telegram reject the message with::
+#
+#     Bad Request: can't parse entities: Unsupported start tag "p" ...
+#
+# On top of that, when an admin pastes a custom-emoji shortcode like
+# ``<tg-emoji emoji-id="...">⭐</tg-emoji>`` into TipTap, ProseMirror doesn't
+# know that node and serialises the raw text back as ``&lt;tg-emoji ...&gt;⭐
+# &lt;/tg-emoji&gt;`` — visible junk in the bot, not a real custom emoji.
+#
+# We normalize on the *read* path so:
+#   * the admin can keep using TipTap with its natural HTML output,
+#   * legacy DB rows with ``<p>``/escaped tags self-heal on the next fetch,
+#   * we don't bake an HTML parser into the writer (admin) — bot is the only
+#     consumer that actually sends to Telegram.
+#
+# Anything outside the supported tag whitelist is stripped (the inner text is
+# preserved). Whitespace around block elements collapses into newlines. The
+# function is intentionally simple regex-based: TipTap's output is well-formed
+# enough that we don't need a full parser, and any junk we miss surfaces as
+# visible text rather than a 400 from Telegram.
+
+_TG_ALLOWED_TAGS: frozenset[str] = frozenset(
+    {
+        "b",
+        "strong",
+        "i",
+        "em",
+        "u",
+        "ins",
+        "s",
+        "strike",
+        "del",
+        "a",
+        "code",
+        "pre",
+        "blockquote",
+        "tg-spoiler",
+        "tg-emoji",
+        "span",  # only ``class="tg-spoiler"`` survives — see below
+    }
+)
+
+# Catch the most common double-escaped patterns the TipTap save path produces
+# when an admin types a literal ``<tg-emoji>`` snippet inside the editor.
+_RE_ESCAPED_TG_EMOJI = re.compile(
+    r"&lt;tg-emoji\s+emoji-id=&quot;(?P<id>\d+)&quot;&gt;"
+    r"(?P<inner>.*?)"
+    r"&lt;/tg-emoji&gt;",
+    re.DOTALL,
+)
+_RE_ESCAPED_TG_EMOJI_RAW_QUOTE = re.compile(
+    r"&lt;tg-emoji\s+emoji-id=\"(?P<id>\d+)\"&gt;"
+    r"(?P<inner>.*?)"
+    r"&lt;/tg-emoji&gt;",
+    re.DOTALL,
+)
+
+# Block-level tags whose closing should produce a paragraph break. The opening
+# tag is dropped (the content stays).
+_BLOCK_TAGS_DOUBLE_BREAK = ("p", "div", "h1", "h2", "h3", "h4", "h5", "h6")
+# Block-level tags whose closing produces a single newline (list items).
+_BLOCK_TAGS_SINGLE_BREAK = ("li",)
+
+_RE_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_RE_OPEN_TAG = re.compile(r"<([a-zA-Z][a-zA-Z0-9-]*)(\s+[^>]*)?>")
+_RE_CLOSE_TAG = re.compile(r"</([a-zA-Z][a-zA-Z0-9-]*)\s*>")
+# Span class="tg-spoiler" → tg-spoiler tag. Anything else with span is dropped.
+_RE_SPAN_SPOILER_OPEN = re.compile(
+    r"<span\s+[^>]*class=[\"']tg-spoiler[\"'][^>]*>", re.IGNORECASE
+)
+_RE_SPAN_OPEN = re.compile(r"<span(\s+[^>]*)?>", re.IGNORECASE)
+_RE_SPAN_CLOSE = re.compile(r"</span\s*>", re.IGNORECASE)
+
+
+def _normalize_message_html(html: str) -> str:
+    """Turn admin-editor HTML into Telegram-friendly HTML.
+
+    Strategy: a single forward pass with regexes. Order matters — emoji
+    un-escaping has to run before tag stripping so the un-escaped ``<tg-emoji>``
+    survives the whitelist filter; ``<br>`` and block tags get replaced with
+    newlines before generic tag-stripping so we don't accidentally glue
+    paragraphs together.
+    """
+    if not html:
+        return html
+
+    # 1) Un-escape ``<tg-emoji>`` snippets that ended up double-escaped in DB.
+    def _emoji_sub(m: re.Match[str]) -> str:
+        return f'<tg-emoji emoji-id="{m.group("id")}">{m.group("inner")}</tg-emoji>'
+
+    out = _RE_ESCAPED_TG_EMOJI.sub(_emoji_sub, html)
+    out = _RE_ESCAPED_TG_EMOJI_RAW_QUOTE.sub(_emoji_sub, out)
+
+    # 2) ``<br>`` → newline.
+    out = _RE_BR.sub("\n", out)
+
+    # 3) Closing block tags → newline(s). Opening block tags → drop.
+    for tag in _BLOCK_TAGS_DOUBLE_BREAK:
+        out = re.sub(rf"</{tag}\s*>", "\n\n", out, flags=re.IGNORECASE)
+        out = re.sub(rf"<{tag}(\s+[^>]*)?>", "", out, flags=re.IGNORECASE)
+    for tag in _BLOCK_TAGS_SINGLE_BREAK:
+        out = re.sub(rf"</{tag}\s*>", "\n", out, flags=re.IGNORECASE)
+        # Bullet for list items.
+        out = re.sub(rf"<{tag}(\s+[^>]*)?>", "• ", out, flags=re.IGNORECASE)
+
+    # 4) Drop list containers — items already became "• " + "\n".
+    out = re.sub(r"</?(ul|ol)\s*[^>]*>", "", out, flags=re.IGNORECASE)
+
+    # 5) <span class="tg-spoiler"> → <tg-spoiler>; other <span> → drop tag.
+    out = _RE_SPAN_SPOILER_OPEN.sub("<tg-spoiler>", out)
+    # Any remaining ``</span>`` matched a spoiler or was paired with a generic
+    # span — close as ``</tg-spoiler>`` if a spoiler is open, otherwise drop.
+    # We don't track open/close pairs precisely; instead, replace remaining
+    # opens with empty and closes with the spoiler close. In practice TipTap
+    # only emits spoiler spans because that's the only span we author.
+    out = _RE_SPAN_OPEN.sub("", out)
+    out = _RE_SPAN_CLOSE.sub("</tg-spoiler>", out)
+
+    # 6) Strip any remaining tags that aren't in the Telegram whitelist.
+    def _strip_unknown_open(m: re.Match[str]) -> str:
+        tag = m.group(1).lower()
+        if tag in _TG_ALLOWED_TAGS:
+            return m.group(0)
+        return ""
+
+    def _strip_unknown_close(m: re.Match[str]) -> str:
+        tag = m.group(1).lower()
+        if tag in _TG_ALLOWED_TAGS:
+            return m.group(0)
+        return ""
+
+    out = _RE_OPEN_TAG.sub(_strip_unknown_open, out)
+    out = _RE_CLOSE_TAG.sub(_strip_unknown_close, out)
+
+    # 7) Collapse runs of 3+ newlines down to a paragraph break.
+    out = re.sub(r"\n{3,}", "\n\n", out)
+
+    return out.strip()
 
 
 @dataclass(slots=True, frozen=True)
@@ -369,17 +518,25 @@ class TextService:
             except BackendUnavailableError as exc:
                 log.warning("texts.refresh_failed", error=str(exc))
                 return
-            self._cache = {
-                key: TextEntry(
-                    value_html=item.get("value_html") or "",
+            cache: dict[str, TextEntry] = {}
+            for key, item in raw.items():
+                kind = item.get("kind") or "message"
+                value_html = item.get("value_html") or ""
+                # Normalize message bodies: TipTap emits ``<p>`` paragraphs
+                # and may double-escape ``<tg-emoji>`` snippets; Telegram's
+                # HTML parser rejects both. Buttons are plain labels — no
+                # tags to normalize.
+                if kind == "message" and value_html:
+                    value_html = _normalize_message_html(value_html)
+                cache[key] = TextEntry(
+                    value_html=value_html,
                     media_file_id=item.get("media_file_id"),
                     media_kind=item.get("media_kind"),
-                    kind=item.get("kind") or "message",
+                    kind=kind,
                     icon_custom_emoji_id=item.get("icon_custom_emoji_id"),
                     url=item.get("url"),
                 )
-                for key, item in raw.items()
-            }
+            self._cache = cache
             self._expires_at = now + self._ttl
             log.debug("texts.refreshed", count=len(self._cache))
 
