@@ -1,78 +1,86 @@
-# VPN_PIX_bot — Stage 1
+# PIX-VPN
 
-> Telegram-бот для продажи VPN-подписок (NorthLine), с админ-панелью на отдельном поддомене. Текущий этап — фундамент: каркас, БД, авторизация, базовое меню.
+Telegram-бот для продажи VPN-подписок (через провайдера NorthLine) с
+веб-админкой и фоновыми задачами. Запускается одной командой через Docker
+Compose.
+
+> Прод: [`pix-app.xyz`](https://pix-app.xyz). Бот: [@pix_vpn_robot](https://t.me/pix_vpn_robot).
+> Доступ к серверу и SSH-настройки — см. [SECURITY.md](./SECURITY.md).
+> Деплой и DNS — см. [infra/DEPLOY.md](./infra/DEPLOY.md).
 
 ## Архитектура
 
-- **backend** — FastAPI + PostgreSQL + Redis. Единственная точка работы с БД и внешними API.
-- **bot** — aiogram 3, ходит в backend по REST.
-- **worker** — ARQ (фоновые задачи). На Stage 1 без задач, просто рабочий каркас.
-- **admin** — React SPA (Vite + TS + Tailwind + shadcn/ui). Логин по ключу из `.env`, JWT.
-- **nginx** — reverse proxy + SSL.
-- **postgres**, **redis** — данные и кэш / FSM.
+```
+┌──────────────┐  long-poll   ┌───────────┐    HTTP+JWT    ┌──────────┐
+│   Telegram   │ ───────────► │    bot    │ ─────────────► │ backend  │
+└──────────────┘              │ (aiogram) │                │ (FastAPI)│
+                              └───────────┘                └────┬─────┘
+                                                                │
+       ┌────────────────────────────────────────────────────────┤
+       │                                                        │
+  ┌────▼──────┐                                            ┌────▼─────┐
+  │  worker   │  ARQ tasks: broadcasts, expiry-notify,     │ Postgres │
+  │   (ARQ)   │  outbox, reconcile, cleanup                │   16     │
+  └─────┬─────┘                                            └──────────┘
+        │                                                  ┌──────────┐
+        └────────────────── Redis 7 ──────────────────────►│  Redis   │
+                                                            └──────────┘
 
-Подробнее: см. [stage1.md](./stage1.md), [README_PLAN.md](./README_PLAN.md).
+  ┌──────────────┐                                       ┌──────────────┐
+  │  admin SPA   │ ◄── nginx (reverse proxy + TLS) ────► │ public web   │
+  │ React + Vite │     /privacy, /terms, /how-to-connect │ static pages │
+  └──────────────┘                                       └──────────────┘
+```
+
+| Сервис      | Что делает                                                            |
+|-------------|-----------------------------------------------------------------------|
+| **backend** | FastAPI. Единственная точка работы с БД и внешними API. Эндпоинты `/api/bot/*` (service token), `/api/admin/*` (JWT), `/webhook/*` (платежи). |
+| **bot**     | aiogram 3, long-polling. Каталог, покупки, профиль, поддержка-тикеты, рефералы, промокоды. |
+| **worker**  | ARQ. Рассылки, уведомления о подписках, outbox для надёжной отправки в Telegram, retention-чистка логов, реконсил со стороны NorthLine. |
+| **admin**   | React 18 + Vite + Tailwind + shadcn/ui. Дашборд, юзеры, подписки/ключи, тарифы, промокоды, рассылки, тексты бота, логи. |
+| **nginx**   | Reverse-proxy + TLS. Отдаёт админку, проксирует API, держит публичные страницы (`/privacy`, `/terms`, `/how-to-connect`). |
+| **postgres / redis** | Данные, FSM, очередь ARQ.                                    |
+
+Технологии: Python 3.12, PostgreSQL 16, Redis 7, Docker, nginx + Let's Encrypt.
+
+## Принципы
+
+- Бот **не ходит в БД напрямую**, только через backend API.
+- Все деньги — в **копейках**, никаких float.
+- Все тексты бота — **в БД** (HTML, редактируются из админки без редеплоя).
+- Идемпотентность платежей и outbox-pattern для отправок в Telegram.
+- Все суммы и состояния — **аудит-лог**, видимый в админке.
 
 ## Требования
 
-- Сервер на Debian 12+ (или Ubuntu 22+). Минимум 2 CPU / 2 GB RAM.
+- Сервер на Debian 12+ или Ubuntu 22+. Минимум 2 CPU / 2 GB RAM (на 1 GB упирается в OOM при рассылках).
 - Docker 24+ и Docker Compose v2.
-- Доменные A-записи: `api.pixio.icu`, `admin.pixio.icu`, `webhook.pixio.icu` → IP сервера.
-- Бот в [@BotFather](https://t.me/BotFather) (BOT_TOKEN).
-- Telegram-канал и группа поддержки (бот — админ в обоих).
+- Доменные A-записи: `pix-app.xyz`, `api.pix-app.xyz` → IP сервера.
+- Бот в [@BotFather](https://t.me/BotFather) (`BOT_TOKEN`).
+- Telegram-канал и группа поддержки (бот — админ в обоих, в группе включены Topics).
 
-## Установка с нуля (Debian)
+## Установка с нуля
+
+Полный гайд (DNS, TLS, проверки) — в [infra/DEPLOY.md](./infra/DEPLOY.md). Кратко:
 
 ```bash
-# 1. Docker
+# 1. Поставить Docker
 curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER && newgrp docker
 
-# 2. Репозиторий
-git clone <repo> vpn_pix && cd vpn_pix
+# 2. Клонировать
+git clone https://github.com/hm0on/pix_vpn_service.git /opt/pix_vpn_service
+cd /opt/pix_vpn_service
 
-# 3. Конфигурация
+# 3. Конфиг
 cp .env.example .env
 # Сгенерировать секреты:
-openssl rand -hex 48   # для BACKEND_SERVICE_TOKEN
-openssl rand -hex 48   # для JWT_SECRET
-openssl rand -hex 48   # для ADMIN_INITIAL_KEY
-openssl rand -base64 32   # для POSTGRES_PASSWORD, REDIS_PASSWORD
+openssl rand -hex 48     # BACKEND_SERVICE_TOKEN, JWT_SECRET, ADMIN_INITIAL_KEY
+openssl rand -base64 32  # POSTGRES_PASSWORD, REDIS_PASSWORD
 nano .env
 
-# 4. Первый запуск (без SSL)
-make build
+# 4. Поднять (см. DEPLOY.md про порядок с TLS)
 make up
 make migrate
-
-# 5. Проверить
-make ps
-curl http://api.pixio.icu/health
-```
-
-## SSL (Let's Encrypt)
-
-```bash
-# Установить certbot на хост
-sudo apt install -y certbot
-
-# Остановить nginx из контейнера на порту 80
-docker compose -f infra/docker-compose.yml stop nginx
-
-# Получить сертификаты
-sudo certbot certonly --standalone \
-  -d api.pixio.icu -d admin.pixio.icu -d webhook.pixio.icu \
-  --email you@example.com --agree-tos --non-interactive
-
-# Скопировать в проект (или симлинком)
-sudo cp -rL /etc/letsencrypt/live /Users/.../infra/nginx/ssl/
-
-# Раскомментировать HTTPS-блоки в infra/nginx/conf.d/00-default.conf
-# Перезапустить nginx
-make restart s=nginx
-
-# Авто-продление (cron)
-echo "0 3 * * * certbot renew --quiet --post-hook 'docker exec vpn_pix-nginx-1 nginx -s reload'" | sudo tee /etc/cron.d/certbot-renew
 ```
 
 ## Команды (Makefile)
@@ -81,28 +89,19 @@ echo "0 3 * * * certbot renew --quiet --post-hook 'docker exec vpn_pix-nginx-1 n
 make help                # список всех команд
 make up                  # поднять всё
 make down                # остановить
-make logs s=backend      # логи сервиса
+make ps                  # статус контейнеров
+make logs s=backend      # логи сервиса (backend|bot|worker|admin|nginx|postgres|redis)
+make restart s=backend   # рестарт сервиса
+make build               # пересобрать образы
 make migrate             # применить миграции
+make makemigration m="msg" # создать новую миграцию
 make psql                # консоль PostgreSQL
 make redis-cli           # консоль Redis
-make test-backend        # тесты
-```
-
-## Первый вход в админку
-
-1. Открыть `https://admin.pixio.icu/`.
-2. Ввести значение `ADMIN_INITIAL_KEY` из `.env`.
-3. Получишь JWT, сохранённый в localStorage.
-4. На Stage 1 видно только пустой Dashboard и страницу настроек (ротация ключа).
-
-## Логи
-
-```bash
-make logs s=backend          # backend
-make logs s=bot              # бот
-make logs s=worker           # воркер
-make logs s=nginx            # nginx
-make psql -c 'SELECT * FROM logs ORDER BY id DESC LIMIT 50;'
+make test-backend        # тесты бэка
+make lint-backend        # ruff + mypy
+make lint-admin          # eslint
+make admin-dev           # фронт локально (vite dev на :5173)
+make admin-build         # production-сборка фронта
 ```
 
 ## Обновление
@@ -117,9 +116,21 @@ make up
 ## Структура
 
 ```
-backend/   FastAPI + SQLAlchemy + Alembic
-bot/       aiogram 3
-worker/    ARQ
-admin/     React SPA
-infra/     docker-compose, nginx, postgres init
+backend/        FastAPI + SQLAlchemy 2.0 async + Alembic
+bot/            aiogram 3
+worker/         ARQ
+admin/          React SPA (Vite + TS + Tailwind + shadcn/ui)
+infra/          docker-compose, nginx-конфиги, статические страницы, TLS
+SECURITY.md     SSH/firewall/fail2ban — как заходить на сервер
 ```
+
+В каждом сервисе свой README с локальными командами и описанием.
+
+## Публичные страницы
+
+- [`/how-to-connect`](https://pix-app.xyz/how-to-connect) — гайд по подключению клиентов VPN.
+- [`/privacy`](https://pix-app.xyz/privacy) — политика конфиденциальности.
+- [`/terms`](https://pix-app.xyz/terms) — пользовательское соглашение.
+
+Все три — статический HTML в `infra/nginx/static/<name>/`, монтируется в
+nginx, локейшены в `infra/nginx/conf.d/00-default.conf`.

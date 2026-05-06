@@ -1,9 +1,8 @@
-"""Admin Broadcasts router (Stage 5).
+"""Admin Broadcasts router.
 
-Endpoints in §10 of stage5.md. The actual delivery is handled by the worker
-task ``run_broadcast`` (worker/app/tasks/broadcasts.py); this router only
-manipulates DB state, uploads photos, fires off the ARQ job and exposes
-recipient lists.
+The actual delivery is handled by the worker task ``run_broadcast``
+(worker/app/tasks/broadcasts.py); this router only manipulates DB state,
+uploads photos, fires off the ARQ job and exposes recipient lists.
 """
 
 from __future__ import annotations

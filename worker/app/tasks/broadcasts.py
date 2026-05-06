@@ -535,7 +535,7 @@ _CLEANUP_RECIPIENTS_SQL = text(
 
 
 async def cleanup_logs(ctx: dict[str, Any]) -> dict[str, int]:
-    """Daily retention sweep — see stage5.md §13."""
+    """Daily retention sweep — drops old logs to keep DB compact."""
     session_factory: async_sessionmaker[AsyncSession] = ctx["db_session_factory"]
     api_client: httpx.AsyncClient = ctx["api_client"]  # noqa: F841
     log = get_logger("worker.cleanup_logs")

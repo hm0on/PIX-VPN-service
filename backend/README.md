@@ -1,37 +1,68 @@
-# VPN_PIX Backend (Stage 1)
+# PIX-VPN Backend
 
-FastAPI service: bot-facing endpoints (`/api/bot/*`, service-token auth) and admin
-endpoints (`/api/admin/*`, JWT auth). Postgres 16 + Redis 7. SQLAlchemy 2.0 async + asyncpg.
+FastAPI service. Единственная точка работы с БД и внешними API
+(NorthLine, Platega, CryptoBot). Постгрес 16 + Redis 7 (FSM, ARQ, кэш).
+SQLAlchemy 2.0 async + asyncpg, Alembic, structlog (JSON-логи).
 
-## Local run
+## Что снаружи
+
+| Префикс       | Auth                  | Кто использует                  |
+|---------------|-----------------------|---------------------------------|
+| `/api/bot/*`  | `Bearer <service_token>` | bot, worker                  |
+| `/api/admin/*`| `Bearer <jwt>`        | admin SPA                       |
+| `/webhook/*`  | подпись провайдера    | Platega, CryptoBot              |
+| `/health`     | публичный             | мониторинг / nginx healthcheck  |
+
+Полный список эндпоинтов и схемы — в Swagger:
+`http://localhost:8000/docs` локально или внутри docker-сети.
+
+## Локально
+
+Удобнее запускать через корневой `Makefile` (см. `make help` в корне репо):
 
 ```bash
-cp ../.env.example ../.env   # configure values
-docker compose up -d backend
+make up                 # backend + зависимости
+make migrate            # alembic upgrade head
+make logs s=backend
+make psql               # консоль БД
+make test-backend       # pytest
+make lint-backend       # ruff + mypy
+make shell-backend      # bash в контейнере
 ```
 
-The container's `entrypoint.sh` waits for Postgres, runs `alembic upgrade head`,
-runs idempotent seeds (`python -m app.seeds`) and starts uvicorn.
+`entrypoint.sh` ждёт Postgres, накатывает миграции, прогоняет
+идемпотентные сиды (`python -m app.seeds`, тарифы и базовые тексты)
+и стартует uvicorn.
 
-## Tests
+## Структура
 
-```bash
-pip install -e .[dev]
-pytest -v
+```
+backend/
+├── alembic/              миграции
+├── app/
+│   ├── api/
+│   │   ├── bot/          /api/bot/* (service-token auth)
+│   │   ├── admin/        /api/admin/* (JWT)
+│   │   ├── webhook/      /webhook/<provider>
+│   │   └── health.py
+│   ├── core/             конфиг, security, deps
+│   ├── db/               модели SQLAlchemy
+│   ├── services/         бизнес-логика (покупки, баланс, NorthLine, рефералы…)
+│   ├── schemas/          pydantic-схемы
+│   ├── seeds.py          идемпотентные сиды
+│   └── main.py
+├── tests/                pytest
+└── Dockerfile
 ```
 
-## Endpoints (Stage 1)
+## Особенности
 
-- `GET  /health` — public
-- `GET  /api/bot/health`           (Bearer service token)
-- `POST /api/bot/users`            upsert by tg_id
-- `GET  /api/bot/users/{tg_id}`
-- `GET  /api/bot/texts`
-- `GET  /api/bot/texts/{key}`
-- `POST /api/bot/logs`
-- `POST /api/admin/auth/login`     `{key}` → `{access_token, ...}`
-- `POST /api/admin/auth/refresh`   rotate key (returns plaintext once)
-- `GET  /api/admin/auth/me`
-- `GET  /api/admin/auth/keys`
-- `DELETE /api/admin/auth/keys/{id}`
-- `GET  /api/admin/health`         (JWT)
+- **Все деньги — в копейках** (BIGINT в БД, никаких float).
+- **Тексты бота — в БД**, редактируются админкой без редеплоя.
+- **Outbox-pattern**: отправки в Telegram пишутся в outbox-таблицу, worker
+  вычитывает и шлёт. При падении — реплей.
+- **Идемпотентность**: каждый платёж и каждая операция NorthLine ходят с
+  `idempotency_key`, повторы не дублируют ключи.
+- **Reconcile-cron**: worker сверяет наши `expires_at` со стороной NorthLine,
+  тащит расхождения в логи.
+- **Аудит-лог** (таблица `event_log`) — всё, что видно в админке.

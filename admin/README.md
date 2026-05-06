@@ -1,87 +1,110 @@
-# VPN PIX — Admin SPA
+# PIX-VPN — Admin SPA
 
-Минимальная админ-панель Stage 1 (React 18 + Vite + TypeScript + Tailwind + shadcn/ui).
+Веб-админка: React 18 + Vite + TypeScript + Tailwind + shadcn/ui.
 
-На текущем этапе:
-- Страница **Login** — вход по уникальному admin-ключу из `.env` (`ADMIN_INITIAL_KEY`).
-- Пустой **Dashboard** с заголовком «Готово» и карточками-заглушками.
-- Страница **Settings → Admin Keys** — просмотр ключей, ротация, отзыв.
+## Что внутри
 
-Полный функционал админки (юзеры, тарифы, рассылки, графики и т.д.) — в Stage 5.
+- **Login** — вход по уникальному admin-ключу (`ADMIN_INITIAL_KEY` или
+  любой из ротированных).
+- **Dashboard** — KPI + графики выручки и регистраций, последние платежи и юзеры.
+- **Users** — список с пагинацией/поиском, детальная карточка с подвкладками
+  (платежи, подписки, тикеты, рефералы, история баланса), бан/разбан с
+  уведомлением в боте.
+- **Subscriptions** — все ключи NorthLine, деактивация, удаление устройств.
+- **Tariffs** — CRUD тарифов и длительностей.
+- **Promos** — промокоды (на баланс / процент-скидка), лимиты, активация.
+- **Broadcasts** — рассылки с TipTap-WYSIWYG, фото, расписанием, очередью и
+  отменой; сегментация (все / только с подпиской / etc).
+- **Texts** — редактор всех текстов бота (HTML).
+- **Logs** — фильтруемые событийные логи + технические (отдельная вкладка),
+  стрим через SSE.
+- **Settings → Admin Keys** — просмотр, ротация (старый действует ещё
+  `ADMIN_KEY_GRACE_HOURS`), отзыв.
 
----
+JWT хранится в `localStorage` через Zustand persist. На каждый запрос
+идут заголовки `Authorization: Bearer ...` и `X-Trace-ID: <uuidv4>`.
+401 → автоматический logout и редирект на `/login`.
 
-## Локальная разработка
+## Стек
+
+| Слой          | Технология                                            |
+|---------------|-------------------------------------------------------|
+| Build tool    | Vite                                                  |
+| Язык          | TypeScript 5                                          |
+| UI            | React 18 + shadcn/ui (Radix)                          |
+| Стили         | Tailwind CSS                                          |
+| State         | Zustand (глобальный) + TanStack Query (server cache)  |
+| Forms         | react-hook-form + zod                                 |
+| Routing       | react-router-dom v6                                   |
+| Charts        | Recharts                                              |
+| Tables        | TanStack Table                                        |
+| WYSIWYG       | TipTap                                                |
+| HTTP          | axios + interceptors                                  |
+| Realtime      | Server-Sent Events для графиков и логов               |
+| Иконки        | lucide-react                                          |
+
+## Локально
 
 Требования: Node.js 20+, npm 10+.
 
 ```bash
 cd admin
 npm install
-npm run dev
+npm run dev          # http://localhost:5173, /api/* проксируется на :8000
 ```
 
-Dev-сервер слушает на `http://localhost:5173`. Запросы `/api/*` проксируются
-на `http://localhost:8000` (Backend FastAPI). Перенастроить можно в `vite.config.ts`.
-
-Если бэкенд работает на другом адресе — задайте переменную окружения:
+Если бэкенд на другом адресе:
 
 ```bash
 echo "VITE_API_BASE_URL=http://localhost:8000/api" > .env.local
 ```
 
-### Команды
+| Команда            | Что делает                                |
+|--------------------|-------------------------------------------|
+| `npm run dev`      | Vite dev-server с HMR                     |
+| `npm run build`    | Production-сборка в `dist/`               |
+| `npm run preview`  | Просмотр прод-сборки локально             |
+| `npm run lint`     | ESLint                                    |
+| `npm run format`   | Prettier                                  |
 
-| Команда           | Что делает                                |
-|-------------------|-------------------------------------------|
-| `npm run dev`     | Vite dev-server с HMR                     |
-| `npm run build`   | Production-сборка в `dist/`               |
-| `npm run preview` | Просмотр прод-сборки локально             |
-| `npm run lint`    | ESLint                                    |
-| `npm run format`  | Prettier                                  |
-
----
+Из корня репо есть алиасы: `make admin-dev`, `make admin-build`, `make lint-admin`.
 
 ## Production-сборка (Docker)
 
-Используется multi-stage `Dockerfile`:
+Multi-stage `Dockerfile`:
 
-1. `node:20-alpine` — `npm ci` + `npm run build`. `VITE_API_BASE_URL` задаётся через `--build-arg`.
+1. `node:20-alpine` — `npm ci` + `npm run build`.
+   `VITE_API_BASE_URL` и `VITE_BASE_PATH` задаются через `--build-arg`.
 2. `nginx:1.27-alpine` — статика + SPA-фоллбэк (`try_files $uri $uri/ /index.html`).
 
-Из корня проекта:
+Аргументы сборки прокидываются из `.env` через `infra/docker-compose.yml`.
+SPA отдаётся nginx'ом по пути `/<ADMIN_PATH_SLUG>/` — slug секретный, в
+`infra/DEPLOY.md` описано как менять.
 
-```bash
-docker build \
-  --build-arg VITE_API_BASE_URL=https://admin.pixio.icu/api \
-  -t vpn-pix-admin ./admin
-docker run -p 8080:80 vpn-pix-admin
-```
-
-В `docker-compose.yml` (см. `infra/docker-compose.yml`) аргумент сборки
-прокидывается из переменной окружения `VITE_API_BASE_URL` из `.env`.
-
----
-
-## Архитектура
+## Структура
 
 ```
 src/
 ├── api/
-│   ├── client.ts          # axios instance, interceptors, X-Trace-ID
-│   └── endpoints/auth.ts  # login / me / rotate / list / revoke
+│   ├── client.ts          axios instance, interceptors, X-Trace-ID
+│   └── endpoints/         модули по фичам
 ├── components/
-│   ├── ui/                # shadcn-стиль примитивы
-│   ├── layout/            # Sidebar, Header, AppShell
+│   ├── ui/                shadcn-стиль примитивы
+│   ├── layout/            Sidebar, Header, AppShell
 │   └── ProtectedRoute.tsx
-├── lib/utils.ts           # cn(), uuidv4()
-├── pages/                 # Login, Dashboard, AdminKeys, NotFound
-├── stores/authStore.ts    # Zustand + persist (localStorage)
-├── App.tsx                # роутинг
-├── main.tsx               # провайдеры
-└── index.css              # Tailwind + CSS variables (dark theme)
+├── lib/                   утилиты
+├── pages/
+│   ├── Dashboard.tsx
+│   ├── Login.tsx
+│   ├── users/             список + детальная
+│   ├── subscriptions/
+│   ├── tariffs/
+│   ├── promos/
+│   ├── broadcasts/
+│   ├── texts/
+│   ├── logs/
+│   └── settings/          (admin keys и пр.)
+├── stores/                Zustand
+├── App.tsx                роутинг
+└── main.tsx               провайдеры
 ```
-
-JWT хранится в `localStorage` через Zustand persist. На каждый запрос
-добавляются заголовки `Authorization: Bearer ...` и `X-Trace-ID: <uuidv4>`.
-При ответе 401 автоматически делается logout и редирект на `/login`.

@@ -23,7 +23,7 @@ from app.repositories.admin_key_repo import AdminKeyRepository
 logger = get_logger("seeds")
 
 
-# ---------- Tariffs (prices in kopecks; questions.md) ----------
+# ---------- Tariffs (prices in kopecks) ----------
 
 TARIFFS_DATA: list[dict[str, Any]] = [
     {

@@ -1,43 +1,59 @@
-# VPN_PIX_bot — Worker (ARQ)
+# PIX-VPN — Worker
 
-Background worker built on **ARQ** (Async Redis Queue).
+Фоновые задачи на **ARQ** (async Redis queue). Подключается к Redis,
+открывает HTTP-клиент к backend API, ходит в Postgres напрямую только
+из задач, которым нужны массовые выборки (рассылки, retention).
 
-## Stage 1 (current)
+## Задачи
 
-No tasks. The worker is a fully functional skeleton that:
+Все задачи — в `worker/app/tasks/`:
 
-- Connects to Redis (with retries) and Postgres.
-- Opens an `httpx.AsyncClient` to Backend API for future use.
-- Logs JSON to stdout via `structlog`.
-- Logs `Worker started, no jobs configured` on startup and idles.
+| Файл                          | Что делает                                                              |
+|-------------------------------|-------------------------------------------------------------------------|
+| `outbox_dispatcher.py`        | Раз в N секунд читает таблицу outbox и шлёт сообщения в Telegram. Гарантирует at-least-once. |
+| `broadcasts.py`               | Запуск рассылок (`run_broadcast`) и retention-чистка логов (`cleanup_logs`). |
+| `expire_payments.py`          | Маркирует «висящие» платежи как expired, если webhook не пришёл за N минут. |
+| `mark_expired.py`             | Маркирует подписки expired по `expires_at`, шлёт нотификацию в outbox.  |
+| `notify_expiring.py`          | За 3 дня до истечения подписки — уведомление пользователю с кнопкой «Продлить». |
+| `notify_expired.py`           | Уведомление об уже истёкшей подписке.                                   |
+| `reconcile_subscriptions.py`  | Сверяет наши `expires_at` со стороной NorthLine, ловит расхождения.     |
+| `cleanup_idempotency.py`      | Чистит протухшие idempotency-ключи.                                     |
 
-## Run
+`common.py` — общие хелперы для задач.
+
+Расписание (cron-стиль) задаётся в `WorkerSettings.cron_jobs` в `app/main.py`.
+
+## Запуск
 
 ```bash
-# Locally
+# Локально (нужен установленный backend и поднятый Redis)
 arq app.main.WorkerSettings
 
-# Docker (built from this directory)
-docker build -t vpn-pix-worker .
-docker run --rm --env-file ../.env vpn-pix-worker
+# Через корневой compose
+make logs s=worker
+make restart s=worker
 ```
 
-In `docker-compose` the service depends on `redis` and `backend` healthchecks.
-
-## Layout
+## Структура
 
 ```
 worker/
+├── app/
+│   ├── main.py                WorkerSettings, on_startup/on_shutdown, cron_jobs
+│   ├── config.py              pydantic-settings
+│   ├── db.py                  async SQLAlchemy engine factory
+│   ├── api_client.py          httpx.AsyncClient к backend API
+│   ├── logging_setup.py       structlog → JSON
+│   └── tasks/                 модули с задачами
 ├── pyproject.toml
-├── Dockerfile
-├── .dockerignore
-└── app/
-    ├── __init__.py
-    ├── main.py            # WorkerSettings, on_startup/on_shutdown
-    ├── config.py          # pydantic-settings
-    ├── db.py              # async SQLAlchemy engine factory
-    ├── api_client.py      # httpx client to Backend API
-    ├── logging_setup.py   # structlog → JSON
-    └── tasks/
-        └── __init__.py    # empty until Stage 2+
+└── Dockerfile
 ```
+
+## Особенности
+
+- **Outbox-pattern**: backend пишет «отправь сообщение X юзеру Y» в таблицу
+  `outbox`, worker вычитывает и шлёт. Если Telegram упал — повторим.
+  Идемпотентность по `outbox_id`.
+- **Идемпотентность ARQ-задач**: при `_job_id`, заданном из вызывающего
+  кода, повторный enqueue не создаст дубликат.
+- **Логи** — JSON в stdout, попадают в `docker compose logs worker`.

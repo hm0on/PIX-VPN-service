@@ -72,7 +72,7 @@ async def _labels(
 
 
 async def main_menu_kb(text_service: TextService) -> InlineKeyboardMarkup:
-    """Layout from `questions.md` → "Как я вижу визуал" / Main menu.
+    """Main menu layout.
 
     Row 1: [Каталог (синяя)] [Профиль]
     Row 2: [Поддержка] [Промокод]

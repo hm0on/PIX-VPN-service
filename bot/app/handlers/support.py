@@ -65,7 +65,7 @@ log = get_logger("bot.handlers.support")
 
 # Anti-flood: at most this many user messages per minute inside an open
 # ticket — beyond it we silently drop additional messages and reply with the
-# rate-limit text. Tunables matched to stage4.md §7.
+# rate-limit text.
 _FLOOD_LIMIT = 30
 _FLOOD_WINDOW_SECONDS = 60
 
@@ -643,7 +643,7 @@ async def msg_unsolicited_text(
 ) -> None:
     """User sent a plain message while NOT in any FSM state.
 
-    This is the catch-all from stage4.md §5 — direct them to open a ticket
+    This is the catch-all for free-text DMs — direct them to open a ticket
     instead of letting the message vanish silently. Slash-commands and
     state-bound messages are excluded by the filter so this only triggers
     for ad-hoc free-text DMs.
