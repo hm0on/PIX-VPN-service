@@ -26,6 +26,7 @@ from app.tasks import (
     notify_expiring_subscriptions_task,
     outbox_dispatcher_task,
     pick_scheduled_broadcasts_task,
+    reconcile_subscriptions_task,
     run_broadcast_task,
 )
 from app.telegram_client import TelegramClient
@@ -123,6 +124,9 @@ _OUTBOX_SECONDS: set[int] = set(range(0, 60, 5))
 _EXPIRE_MINUTES: set[int] = set(range(0, 60, 5))
 _CLEANUP_HOURS: set[int] = set(range(24))
 _HOURLY_HOURS: set[int] = set(range(24))
+# Reconcile subs vs. NorthLine every 6h at minute :11 (offset chosen to
+# avoid the existing :17/:23/:33/:37/:43/:53 cron slots).
+_RECONCILE_HOURS: set[int] = {1, 7, 13, 19}
 
 
 class WorkerSettings:
@@ -188,6 +192,13 @@ class WorkerSettings:
             name="cleanup_logs",
             hour={3},
             minute={37},
+            unique=True,
+        ),
+        cron(
+            reconcile_subscriptions_task,
+            name="reconcile_subscriptions",
+            hour=_RECONCILE_HOURS,
+            minute={11},
             unique=True,
         ),
     ]

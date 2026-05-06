@@ -254,9 +254,13 @@ class BalanceService:
         sub_db.provider_subscription_id = key_resp.subscription_id
         sub_db.key_url = key_resp.key
         sub_db.started_at = now
-        sub_db.expires_at = key_resp.expires_at or (
-            now + timedelta(days=duration.days)
-        )
+        # NB: ``key_resp.expires_at`` is intentionally ignored. NorthLine's
+        # test-mode endpoint returns ``expires_at == now`` for fake keys,
+        # which would mark the subscription as already expired. The
+        # authoritative period is what the user paid for (``duration.days``);
+        # we reconcile against the provider periodically via
+        # ``app.services.subscription_reconcile`` to catch drift in prod.
+        sub_db.expires_at = now + timedelta(days=duration.days)
         await self.session.flush()
 
         # NB: no outbox row for the success message — the bot edits the

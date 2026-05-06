@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.exceptions import NorthLineUnavailableError
+from app.db.models.subscription import Subscription
 from app.db.models.tariff import Tariff, TariffDuration
 from app.db.models.user import User
 from app.db.session import get_session_factory
@@ -93,6 +94,64 @@ async def test_purchase_with_balance_happy(client, auth_headers, seed_db, app): 
     r2 = await client.get("/api/bot/users/6001/balance", headers=auth_headers)
     assert r2.status_code == 200
     assert r2.json()["balance_kopecks"] == 50000
+
+
+@pytest.mark.asyncio
+async def test_purchase_with_balance_ignores_provider_expires_at(  # noqa: ANN001
+    client, auth_headers, seed_db, app
+):
+    """NorthLine test-mode returns ``expires_at == now`` for fake keys.
+
+    We must compute ``expires_at`` locally (``now + duration.days``)
+    instead of trusting the provider, otherwise the subscription would
+    be marked expired the moment it's created. Regression test for the
+    ``balance_service.expires_at = key_resp.expires_at or ...`` bug.
+    """
+    issued_at = datetime.now(tz=timezone.utc)
+    nl_mock = AsyncMock()
+    nl_mock.create_key = AsyncMock(
+        return_value=KeyResponse(
+            ok=True,
+            subscription_id="northline_sub_balance_now",
+            key="https://sub.pixio.icu/balance_now",
+            # Provider lies: returns "now" instead of "now + 30 days".
+            expires_at=issued_at,
+            devices=3,
+            days=30,
+        )
+    )
+    nl_mock.aclose = AsyncMock(return_value=None)
+    app.dependency_overrides[get_northline_client] = lambda: nl_mock
+
+    await client.post(
+        "/api/bot/users",
+        headers=auth_headers,
+        json={"tg_id": 6010, "username": "buy_now"},
+    )
+    tariff_id, duration_id, price = await _get_basic_30_days()
+    await _credit_balance(6010, price)
+
+    r = await client.post(
+        "/api/bot/purchase/balance",
+        headers=auth_headers,
+        json={"tg_id": 6010, "tariff_id": tariff_id, "duration_id": duration_id},
+    )
+    assert r.status_code == 200, r.text
+    sub_id = r.json()["subscription"]["id"]
+
+    factory = get_session_factory()
+    async with factory() as session:
+        sub = (
+            await session.execute(select(Subscription).where(Subscription.id == sub_id))
+        ).scalar_one()
+
+    # Local expires_at must be ~ issued_at + 30d, NOT the provider's "now".
+    expected = issued_at + timedelta(days=30)
+    drift = abs((sub.expires_at - expected).total_seconds())
+    assert drift < 60, (
+        f"expected expires_at near {expected.isoformat()}, "
+        f"got {sub.expires_at.isoformat()} (drift {drift}s)"
+    )
 
 
 @pytest.mark.asyncio

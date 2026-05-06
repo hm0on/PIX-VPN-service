@@ -26,6 +26,7 @@ from app.tasks.mark_expired import mark_expired_subscriptions_task
 from app.tasks.notify_expired import notify_expired_subscriptions_task
 from app.tasks.notify_expiring import notify_expiring_subscriptions_task
 from app.tasks.outbox_dispatcher import outbox_dispatcher_task
+from app.tasks.reconcile_subscriptions import reconcile_subscriptions_task
 
 __all__ = [
     "cleanup_idempotency_keys_task",
@@ -36,5 +37,6 @@ __all__ = [
     "notify_expiring_subscriptions_task",
     "outbox_dispatcher_task",
     "pick_scheduled_broadcasts_task",
+    "reconcile_subscriptions_task",
     "run_broadcast_task",
 ]

@@ -13,6 +13,7 @@ from app.api.bot import (
     purchase_balance,
     purchase_start,
     referral,
+    subscriptions,
     support_topic,
     tariffs,
     texts,
@@ -44,3 +45,4 @@ bot_router.include_router(profile.router)
 bot_router.include_router(promo.router)
 bot_router.include_router(referral.router)
 bot_router.include_router(extension.router)
+bot_router.include_router(subscriptions.router)

@@ -144,7 +144,13 @@ class FreeTrialService:
         sub.provider_subscription_id = key_resp.subscription_id
         sub.key_url = key_resp.key
         sub.started_at = now
-        sub.expires_at = key_resp.expires_at or (now + timedelta(days=days))
+        # NB: ``key_resp.expires_at`` is intentionally ignored. NorthLine's
+        # test-mode endpoint returns ``expires_at == now`` for fake keys,
+        # which would mark the subscription as already expired. The
+        # authoritative period is what the user paid for (``days``); we
+        # reconcile against the provider periodically via
+        # ``app.services.subscription_reconcile`` to catch drift in prod.
+        sub.expires_at = now + timedelta(days=days)
         await self.session.flush()
 
         # Outbox: send the key to the user.
