@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     northline_api_url: str | None = None
     northline_provider_key: str | None = None
     northline_bearer_token: str | None = None
+    # When true, ``NorthLineClient.create_key`` adds ``"test": true`` so the
+    # provider returns a fake subscription without debiting the reseller
+    # balance. Useful for end-to-end smoke tests in production-like
+    # environments. See https://northline-vpn.xyz/reseller-api-docs#test-mode.
+    northline_test_mode: bool = False
 
     # Platega
     platega_api_key: str = ""

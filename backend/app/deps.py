@@ -118,9 +118,12 @@ def get_northline_client(request: Request) -> NorthLineClient:
     if client is None:
         settings = get_settings()
         client = NorthLineClient(
-            base_url=settings.northline_api_url or "https://api.northline.vpn",
+            base_url=(
+                settings.northline_api_url or "https://northline-vpn.xyz/api/v1"
+            ),
             bearer_token=settings.northline_bearer_token or "",
             provider_key=settings.northline_provider_key or "",
+            test_mode=bool(settings.northline_test_mode),
         )
         request.app.state.northline_client = client
     return client

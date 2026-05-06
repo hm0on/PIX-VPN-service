@@ -1,11 +1,17 @@
-"""Async HTTP client for the NorthLine VPN API.
+"""Async HTTP client for the NorthLine Reseller API.
 
-Spec: TEMP_API.md.
+Spec: https://northline-vpn.xyz/reseller-api-docs
 
 - httpx.AsyncClient under the hood.
 - Retries on 5xx and transport errors (3 attempts, exponential 1s/2s/4s) via tenacity.
 - 4xx → no retries, raise NorthLineClientError.
 - All calls are tech-logged with trace_id (best-effort: caller may pass a session).
+- Optional ``test_mode``: when enabled, ``create_key`` includes ``"test": true``
+  in the request body. The provider returns a fake ``subscription_id`` and key
+  URL, never debits the reseller balance and does not provision a real VLESS
+  key. Toggle through the ``NORTHLINE_TEST_MODE`` env var. Other endpoints
+  (``extend_key``, ``get_key``) do not support a sandbox flag — calls against
+  fake test subscriptions will simply fail with NOT_FOUND.
 """
 
 from __future__ import annotations
@@ -43,7 +49,11 @@ class _RetryableHTTPError(Exception):
 
 
 class NorthLineClient:
-    """Async client for `api.northline.vpn`."""
+    """Async client for the NorthLine reseller API.
+
+    The base URL must already include the ``/api/v1`` prefix
+    (the provider's docs publish endpoints relative to that prefix).
+    """
 
     def __init__(
         self,
@@ -53,10 +63,12 @@ class NorthLineClient:
         *,
         timeout: float = 15.0,
         connect_timeout: float = 5.0,
+        test_mode: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.bearer_token = bearer_token
         self.provider_key = provider_key
+        self.test_mode = test_mode
         self._timeout = httpx.Timeout(timeout, connect=connect_timeout)
         self._client: httpx.AsyncClient | None = None
 
@@ -189,19 +201,32 @@ class NorthLineClient:
         idempotency_key: str,
         metadata: dict[str, Any] | None = None,
     ) -> KeyResponse:
-        body = {
+        """POST /keys — create a new VPN subscription.
+
+        When ``self.test_mode`` is ``True`` the request includes ``"test": true``
+        and the provider returns a fake ``subscription_id`` + key URL without
+        debiting the reseller balance.
+        """
+        body: dict[str, Any] = {
             "provider_key": self.provider_key,
             "days": days,
             "devices": devices,
             "idempotency_key": idempotency_key,
             "metadata": metadata or {},
         }
+        if self.test_mode:
+            body["test"] = True
         started = time.perf_counter()
-        data = await self._request("POST", "/v1/keys", json_body=body)
+        data = await self._request("POST", "/keys", json_body=body)
         await self._tech_log(
             "northline:create_key",
             started=started,
-            payload={"days": days, "devices": devices, "idempotency_key": idempotency_key},
+            payload={
+                "days": days,
+                "devices": devices,
+                "idempotency_key": idempotency_key,
+                "test_mode": self.test_mode,
+            },
         )
         return KeyResponse.model_validate(data)
 
@@ -212,6 +237,7 @@ class NorthLineClient:
         days: int,
         idempotency_key: str,
     ) -> ExtendResponse:
+        """POST /keys/{id}/extend — extend an existing subscription by N days."""
         body = {
             "provider_key": self.provider_key,
             "days": days,
@@ -219,7 +245,7 @@ class NorthLineClient:
         }
         started = time.perf_counter()
         data = await self._request(
-            "POST", f"/v1/keys/{subscription_id}/extend", json_body=body
+            "POST", f"/keys/{subscription_id}/extend", json_body=body
         )
         await self._tech_log(
             "northline:extend_key",
@@ -234,25 +260,36 @@ class NorthLineClient:
         subscription_id: str,
         reason: str,
     ) -> DeactivateResponse:
-        body = {"provider_key": self.provider_key, "reason": reason}
-        started = time.perf_counter()
-        data = await self._request(
-            "POST", f"/v1/keys/{subscription_id}/deactivate", json_body=body
+        """Soft no-op: the reseller API has no deactivate endpoint.
+
+        Subscriptions auto-expire on ``expires_at`` and the reseller side has
+        no way to forcibly retire one early. We keep this method on the client
+        so the admin "deactivate" action still works (it flips the local DB
+        status and notifies the user) — we just don't make an HTTP call to the
+        provider.
+        """
+        from datetime import UTC, datetime
+
+        logger.info(
+            "northline_deactivate_local_only",
+            subscription_id=subscription_id,
+            reason=reason,
+            note="provider has no deactivate endpoint; DB-only change",
         )
-        await self._tech_log(
-            "northline:deactivate_key",
-            started=started,
-            payload={"subscription_id": subscription_id},
+        return DeactivateResponse(
+            ok=True,
+            subscription_id=subscription_id,
+            deactivated_at=datetime.now(tz=UTC),
         )
-        return DeactivateResponse.model_validate(data)
 
     async def get_key(self, *, subscription_id: str) -> KeyInfo:
+        """GET /keys/{id} — fetch subscription state.
+
+        Note: ``provider_key`` is not required as a query parameter on this
+        endpoint per current docs (auth is via the Bearer token alone).
+        """
         started = time.perf_counter()
-        data = await self._request(
-            "GET",
-            f"/v1/keys/{subscription_id}",
-            params={"provider_key": self.provider_key},
-        )
+        data = await self._request("GET", f"/keys/{subscription_id}")
         await self._tech_log(
             "northline:get_key",
             started=started,
@@ -263,21 +300,24 @@ class NorthLineClient:
     async def remove_device(
         self, *, subscription_id: str, device_id: str
     ) -> None:
-        started = time.perf_counter()
-        await self._request(
-            "DELETE",
-            f"/v1/keys/{subscription_id}/devices/{device_id}",
-            params={"provider_key": self.provider_key},
-        )
-        await self._tech_log(
-            "northline:remove_device",
-            started=started,
-            payload={"subscription_id": subscription_id, "device_id": device_id},
+        """Soft no-op: per-device removal is not exposed by the reseller API.
+
+        Kept for compatibility with the admin endpoint
+        ``DELETE /api/admin/subscriptions/{id}/devices/{device_id}``;
+        we just record a tech log and return. If the provider adds this in
+        a future revision this method should be wired up to the real call.
+        """
+        logger.info(
+            "northline_remove_device_unsupported",
+            subscription_id=subscription_id,
+            device_id=device_id,
+            note="provider has no per-device removal endpoint",
         )
 
     async def ping(self) -> bool:
+        """GET /ping — public healthcheck (no auth required)."""
         try:
-            data = await self._request("GET", "/v1/ping")
+            data = await self._request("GET", "/ping")
         except (NorthLineClientError, NorthLineUnavailableError):
             return False
         return bool(data.get("ok"))
