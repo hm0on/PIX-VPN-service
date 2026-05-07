@@ -33,22 +33,6 @@ const SpoilerMark = Mark.create({
   renderHTML({ HTMLAttributes }) {
     return ['span', mergeAttributes(HTMLAttributes, { class: 'tg-spoiler' }), 0];
   },
-  addCommands() {
-    return {
-      toggleSpoiler:
-        () =>
-        ({ commands }) =>
-          commands.toggleMark(this.name),
-      setSpoiler:
-        () =>
-        ({ commands }) =>
-          commands.setMark(this.name),
-      unsetSpoiler:
-        () =>
-        ({ commands }) =>
-          commands.unsetMark(this.name),
-    };
-  },
 });
 import {
   Bold,
