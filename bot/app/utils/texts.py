@@ -478,6 +478,7 @@ _BUTTON_FALLBACKS: dict[str, str] = {
     "btn.profile.add_more": "➕ Оформить ещё",
     "btn.profile.topup": "💰 Пополнить баланс",
     "btn.profile.referral": "🎁 Реферальная программа",
+    "btn.referral.share": "📤 Поделиться",
     "btn.subscription.howto": "📖 Как подключиться",
     "btn.subscription.extend": "♻️ Продлить",
     "btn.payment.sbp": "СБП",

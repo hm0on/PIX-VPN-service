@@ -84,5 +84,7 @@ async def cb_referral_program(
         else "Подключи безлимитный VPN со скидкой 10% на первую покупку!"
     )
     await safe_edit_or_answer(
-        callback, text, reply_markup=referral_kb(ref_link, share_text)
+        callback,
+        text,
+        reply_markup=await referral_kb(ref_link, share_text, texts),
     )

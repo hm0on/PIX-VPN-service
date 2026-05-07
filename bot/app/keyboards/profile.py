@@ -23,7 +23,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.keyboards.main_menu import make_button
 from app.utils.texts import TextService
-from app.utils.texts import TextService
 
 
 def _format_short_date(value: Any) -> str:
@@ -113,25 +112,50 @@ async def profile_kb(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def referral_kb(ref_link: str, share_text: str) -> InlineKeyboardMarkup:
+async def referral_kb(
+    ref_link: str, share_text: str, text_service: TextService
+) -> InlineKeyboardMarkup:
     """Referral screen keyboard.
 
     "Поделиться" uses ``switch_inline_query`` so the user picks a chat and
     Telegram pre-fills the message with ``share_text`` (the ref link plus a
     short pitch). "← Назад" returns to the profile.
+
+    Both the share button label/icon and the back button label/icon are
+    pulled from ``texts`` (``btn.referral.share`` and ``btn.common.back``)
+    so admins can rename them — and attach a premium custom emoji icon —
+    without redeploying the bot.
     """
     # ``ref_link`` is part of ``share_text`` already, kept as a parameter for
     # callers that want to log/inspect the link separately.
     _ = ref_link  # noqa: F841 — explicit "intentionally unused"
+
+    share_label, share_icon = await text_service.get_button("btn.referral.share")
+    back_label, back_icon = await text_service.get_button("btn.common.back")
+
+    # Telegram ignores ``icon_custom_emoji_id`` on the older switch_inline_query
+    # path in some clients but the field is harmless when forwarded — keep
+    # behaviour consistent with the rest of the keyboards.
+    share_extra: dict[str, object] = {}
+    if share_icon:
+        share_extra["icon_custom_emoji_id"] = share_icon
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="📤 Поделиться",
+                    text=share_label,
                     switch_inline_query=share_text,
+                    **share_extra,  # type: ignore[arg-type]
                 )
             ],
-            [make_button("← Назад", callback_data="profile")],
+            [
+                make_button(
+                    back_label,
+                    callback_data="profile",
+                    icon_custom_emoji_id=back_icon,
+                )
+            ],
         ]
     )
 
