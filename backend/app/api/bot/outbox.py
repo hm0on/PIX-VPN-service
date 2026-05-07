@@ -10,6 +10,7 @@ from sqlalchemy.exc import NoResultFound
 
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
+from app.core.tg_html import to_telegram_html
 from app.db.models.text import Text
 from app.deps import DBSession
 from app.schemas.outbox import (
@@ -112,7 +113,18 @@ async def _resolve_payload(
             out["text"] = f"[text:{text_key} not found]"
             log.warning("outbox_text_key_missing", text_key=text_key, id=msg_id)
         else:
-            out["text"] = _render_template(value_html, format_kwargs)
+            # Texts edited via the admin TipTap editor come out as semantic
+            # HTML (``<p>...</p>`` paragraphs, ``<ul><li>``, ``<h2>`` etc.) —
+            # Telegram's HTML parse mode rejects all of that ("Bad Request:
+            # Unsupported start tag p"). Normalise the body down to the
+            # narrow whitelist Telegram understands (b/i/u/s/a/code/pre/
+            # blockquote/tg-spoiler/tg-emoji) BEFORE rendering — the
+            # converter also un-escapes ``&lt;tg-emoji ...&gt;X&lt;/tg-emoji&gt;``
+            # snippets that TipTap saves as text rather than tags. Templating
+            # runs second so any literal ``{`` in the source survives.
+            out["text"] = _render_template(
+                to_telegram_html(value_html), format_kwargs
+            )
 
     if "reply_markup" not in out and out.get("buttons"):
         reply_markup = _buttons_to_reply_markup(out["buttons"])
