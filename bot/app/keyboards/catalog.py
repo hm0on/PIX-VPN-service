@@ -279,22 +279,28 @@ async def key_issued_kb(
 ) -> InlineKeyboardMarkup:
     """Post-success keyboard shown to the user with the freshly issued key.
 
-    "Как подключиться" is an external URL button (post in the channel) and
-    is omitted gracefully if ``HOWTO_CONNECT_URL`` is unset — falling back
-    to a callback that just shows a short hint via the about/help section.
+    "Как подключиться" prefers the URL stored on the ``btn.subscription.howto``
+    text row (admin-edited) and falls back to ``howto_url`` (env). When neither
+    is set the row is omitted entirely — better no button than a dead one.
     """
-    howto_label, howto_icon = await text_service.get_button("btn.subscription.howto")
+    howto_label, howto_icon, howto_db_url = await text_service.get_url_button(
+        "btn.subscription.howto"
+    )
     menu_label, menu_icon = await text_service.get_button("btn.common.to_menu")
 
+    effective_howto_url = howto_db_url or howto_url
+
     rows: list[list[InlineKeyboardButton]] = []
-    if howto_url:
+    if effective_howto_url:
         howto_extra: dict[str, object] = (
             {"icon_custom_emoji_id": howto_icon} if howto_icon else {}
         )
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=howto_label, url=howto_url, **howto_extra  # type: ignore[arg-type]
+                    text=howto_label,
+                    url=effective_howto_url,
+                    **howto_extra,  # type: ignore[arg-type]
                 )
             ]
         )

@@ -168,24 +168,37 @@ async def subscription_detail_kb(
 ) -> InlineKeyboardMarkup:
     """Subscription detail keyboard.
 
-    "Как подключиться" prefers the configured ``howto_url`` (channel post);
-    if none is set we fall back to a callback so the keyboard is still valid.
+    URL resolution for "Как подключиться":
+      1. URL stored on the ``btn.subscription.howto`` text row (admin-edited).
+      2. ``howto_url`` argument — typically ``settings.HOWTO_CONNECT_URL`` from
+         env, kept as a fallback for installs where the admin hasn't touched
+         the button row yet.
+      3. Neither set → render as a callback button that hits the bot's local
+         "howto" handler so the keyboard is still valid.
     """
-    howto_label, howto_icon = await text_service.get_button("btn.subscription.howto")
+    howto_label, howto_icon, howto_db_url = await text_service.get_url_button(
+        "btn.subscription.howto"
+    )
     extend_label, extend_icon = await text_service.get_button(
         "btn.subscription.extend"
     )
     back_label, back_icon = await text_service.get_button("btn.common.back")
 
+    # Admin-edited URL wins over the env fallback so changes in the admin
+    # panel take effect immediately on the next text-cache refresh.
+    effective_howto_url = howto_db_url or howto_url
+
     rows: list[list[InlineKeyboardButton]] = []
-    if howto_url:
+    if effective_howto_url:
         # External-link variant — Telegram doesn't allow icon_custom_emoji_id
         # on URL buttons in older clients, but the field is harmless in newer
         # ones, so we forward it the same way as callback buttons.
         rows.append(
             [
                 make_button(
-                    howto_label, url=howto_url, icon_custom_emoji_id=howto_icon
+                    howto_label,
+                    url=effective_howto_url,
+                    icon_custom_emoji_id=howto_icon,
                 )
             ]
         )
