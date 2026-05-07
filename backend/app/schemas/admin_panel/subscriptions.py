@@ -14,6 +14,13 @@ class AdminSubListItem(BaseModel):
     user_tg_id: int | None = None
     user_username: str | None = None
     tariff_id: int
+    # Denormalised so the admin table can render a tariff label without an
+    # extra round-trip to /tariffs. ``tariff_code`` is the operator-facing
+    # short identifier (``basic``, ``pro``…); ``tariff_name`` is the
+    # display-name shown in the bot. Both are optional so we degrade to ``—``
+    # when the tariff has been deleted (RESTRICT FK normally prevents this).
+    tariff_code: str | None = None
+    tariff_name: str | None = None
     devices: int
     days: int
     status: str
@@ -36,6 +43,8 @@ class AdminSubDetail(BaseModel):
     user_tg_id: int | None = None
     user_username: str | None = None
     tariff_id: int
+    tariff_code: str | None = None
+    tariff_name: str | None = None
     tariff_duration_id: int | None = None
     provider_subscription_id: str | None = None
     key_url: str | None = None
@@ -51,10 +60,20 @@ class AdminSubDetail(BaseModel):
 
 
 class AdminSubInfoResponse(BaseModel):
-    """Proxy of NorthLine.get_key + raw."""
+    """Proxy of NorthLine.get_key + raw.
+
+    The reseller API doesn't currently return a per-device breakdown — only
+    aggregate counts (``devices_used`` / ``devices_total``). We surface those
+    aggregates separately so the admin UI can show "5 / 10 устройств" even
+    when ``devices`` (the per-device list) is empty.
+    """
 
     traffic_bytes: int | None = None
+    traffic_quota_gb: int | None = None
     lte_traffic_bytes: int | None = None
+    devices_total: int | None = None
+    devices_used: int | None = None
+    expires_at: datetime | None = None
     devices: list[dict[str, Any]] = Field(default_factory=list)
     raw: dict[str, Any] = Field(default_factory=dict)
 

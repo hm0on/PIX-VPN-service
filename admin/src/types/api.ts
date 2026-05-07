@@ -198,9 +198,12 @@ export interface SubscriptionDevice {
 
 export interface SubscriptionInfo {
   traffic_bytes: number | null;
+  traffic_quota_gb: number | null;
   lte_traffic_bytes: number | null;
-  devices: SubscriptionDevice[];
+  devices_total: number | null;
+  devices_used: number | null;
   expires_at: string | null;
+  devices: SubscriptionDevice[];
   raw?: Record<string, unknown>;
 }
 

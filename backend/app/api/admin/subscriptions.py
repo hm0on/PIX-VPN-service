@@ -20,6 +20,7 @@ from app.db.models.subscription import (
     SUB_STATUS_DEACTIVATED,
     Subscription,
 )
+from app.db.models.tariff import Tariff
 from app.db.models.user import User
 from app.deps import AdminDep, DBSession, NorthLineClientDep
 from app.repositories.outbox_repo import OutboxRepository
@@ -116,8 +117,19 @@ async def list_subscriptions(
         count_stmt = count_stmt.where(where_clause)
     total = int((await session.execute(count_stmt)).scalar_one())
 
-    stmt = select(Subscription, User.tg_id, User.username).join(
-        User, User.id == Subscription.user_id
+    # LEFT-OUTER-JOIN on Tariff so we can render ``tariff_name`` /
+    # ``tariff_code`` straight from the list query — keeps the table view a
+    # single round-trip instead of forcing the admin UI to hydrate tariffs
+    # separately. We use OUTER so a deleted tariff (extremely rare with the
+    # RESTRICT FK) doesn't make the row disappear from the listing.
+    stmt = select(
+        Subscription,
+        User.tg_id,
+        User.username,
+        Tariff.name,
+        Tariff.code,
+    ).join(User, User.id == Subscription.user_id).outerjoin(
+        Tariff, Tariff.id == Subscription.tariff_id
     )
     if where_clause is not None:
         stmt = stmt.where(where_clause)
@@ -134,6 +146,8 @@ async def list_subscriptions(
             user_tg_id=tg_id,
             user_username=username,
             tariff_id=s.tariff_id,
+            tariff_code=tariff_code,
+            tariff_name=tariff_name,
             devices=s.devices,
             days=s.days,
             status=s.status,
@@ -142,7 +156,7 @@ async def list_subscriptions(
             expires_at=s.expires_at,
             created_at=s.created_at,
         )
-        for s, tg_id, username in rows
+        for s, tg_id, username, tariff_name, tariff_code in rows
     ]
     return AdminSubsPage(items=items, total=total, page=page, page_size=page_size)
 
@@ -156,12 +170,22 @@ async def get_subscription(
     sub = await _get_sub_or_404(session, sub_id)
     user_res = await session.execute(select(User).where(User.id == sub.user_id))
     user = user_res.scalar_one_or_none()
+    # Single-row tariff lookup — cheap (PK index) and keeps the detail
+    # response self-contained so the UI doesn't need a separate tariffs fetch.
+    tariff_res = await session.execute(
+        select(Tariff.name, Tariff.code).where(Tariff.id == sub.tariff_id)
+    )
+    tariff_row = tariff_res.first()
+    tariff_name = tariff_row[0] if tariff_row else None
+    tariff_code = tariff_row[1] if tariff_row else None
     return AdminSubDetail(
         id=sub.id,
         user_id=sub.user_id,
         user_tg_id=(user.tg_id if user else None),
         user_username=(user.username if user else None),
         tariff_id=sub.tariff_id,
+        tariff_code=tariff_code,
+        tariff_name=tariff_name,
         tariff_duration_id=sub.tariff_duration_id,
         provider_subscription_id=sub.provider_subscription_id,
         key_url=sub.key_url,
@@ -203,10 +227,34 @@ async def get_subscription_info(
             },
         ) from e
 
+    # Adapt the NorthLine ``KeyDevice`` payload to the keys the admin UI
+    # expects (``id`` / ``last_seen_at`` instead of ``device_id`` /
+    # ``last_seen``). Fields the upstream doesn't supply (``ip``, ``platform``)
+    # are passed through as ``None`` so the table can render ``—``. NorthLine
+    # currently returns an empty list, but normalising here means the UI
+    # works the moment the upstream flips it on.
+    devices_payload: list[dict[str, Any]] = []
+    for d in info.devices:
+        dump = d.model_dump(mode="json")
+        devices_payload.append(
+            {
+                "id": dump.get("device_id"),
+                "name": dump.get("name"),
+                "platform": dump.get("platform"),
+                "last_seen_at": dump.get("last_seen"),
+                "ip": dump.get("ip"),
+                "traffic_bytes": dump.get("traffic_bytes"),
+            }
+        )
+
     return AdminSubInfoResponse(
         traffic_bytes=info.traffic_bytes,
+        traffic_quota_gb=info.traffic_quota_gb,
         lte_traffic_bytes=info.lte_traffic_bytes,
-        devices=[d.model_dump() for d in info.devices],
+        devices_total=info.devices_total,
+        devices_used=info.devices_used,
+        expires_at=info.expires_at,
+        devices=devices_payload,
         raw=info.model_dump(mode="json"),
     )
 

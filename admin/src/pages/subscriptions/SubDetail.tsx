@@ -255,6 +255,11 @@ export default function SubDetail() {
                       ? formatBytes(info.traffic_bytes)
                       : 'Статистика недоступна'}
                   </Field>
+                  <Field label="Квота, ГБ">
+                    {info.traffic_quota_gb != null
+                      ? `${info.traffic_quota_gb} ГБ`
+                      : '—'}
+                  </Field>
                   <Field label="LTE-трафик">
                     {info.lte_traffic_bytes != null
                       ? formatBytes(info.lte_traffic_bytes)
@@ -271,7 +276,11 @@ export default function SubDetail() {
           <Card>
             <CardHeader>
               <CardTitle>Устройства</CardTitle>
-              <CardDescription>Активные подключения</CardDescription>
+              <CardDescription>
+                {info?.devices_used != null && info?.devices_total != null
+                  ? `Подключено: ${info.devices_used} из ${info.devices_total}`
+                  : 'Активные подключения'}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {infoQuery.isLoading ? (
@@ -282,7 +291,9 @@ export default function SubDetail() {
                 </p>
               ) : (info?.devices ?? []).length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Нет подключённых устройств.
+                  {info?.devices_used != null && info.devices_used > 0
+                    ? `Активно: ${info.devices_used}. Поставщик пока не возвращает их перечень — посмотрите в панели NorthLine.`
+                    : 'Нет подключённых устройств.'}
                 </p>
               ) : (
                 <Table>
