@@ -1,7 +1,55 @@
 import { useEffect } from 'react';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
+import { Mark, mergeAttributes } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
+
+// Custom mark for Telegram's spoiler.
+//
+// StarterKit doesn't ship a span/spoiler mark, and ProseMirror will silently
+// drop any markup it doesn't have a schema entry for — so plain
+// ``insertContent('<span class="tg-spoiler">...</span>')`` would parse the
+// span away the moment the editor re-serialised the doc, leaving the user's
+// "spoilered" text bare HTML in the saved DB row.
+//
+// Defining this mark as a real schema node makes the round-trip lossless:
+// ``parseHTML`` recognises ``<span class="tg-spoiler">`` on load, and
+// ``renderHTML`` emits the same markup on every ``getHTML()`` call so the
+// bot's ``_normalize_message_html`` regex can convert it to a real
+// ``<tg-spoiler>`` Telegram tag.
+const SpoilerMark = Mark.create({
+  name: 'tgSpoiler',
+  inclusive: true,
+  parseHTML() {
+    return [
+      {
+        tag: 'span.tg-spoiler',
+      },
+      {
+        tag: 'tg-spoiler',
+      },
+    ];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['span', mergeAttributes(HTMLAttributes, { class: 'tg-spoiler' }), 0];
+  },
+  addCommands() {
+    return {
+      toggleSpoiler:
+        () =>
+        ({ commands }) =>
+          commands.toggleMark(this.name),
+      setSpoiler:
+        () =>
+        ({ commands }) =>
+          commands.setMark(this.name),
+      unsetSpoiler:
+        () =>
+        ({ commands }) =>
+          commands.unsetMark(this.name),
+    };
+  },
+});
 import {
   Bold,
   Italic,
@@ -24,14 +72,12 @@ interface ToolbarProps {
 
 function Toolbar({ editor, disabled }: ToolbarProps) {
   const insertSpoiler = () => {
-    const { from, to } = editor.state.selection;
-    const text = editor.state.doc.textBetween(from, to, ' ');
-    if (!text) return;
-    editor
-      .chain()
-      .focus()
-      .insertContent(`<span class="tg-spoiler">${escapeHtml(text)}</span>`)
-      .run();
+    // Toggle the ``tgSpoiler`` mark on the current selection. Using the mark
+    // (instead of raw insertContent) keeps the markup round-trippable: the
+    // ProseMirror schema knows about ``span.tg-spoiler`` so it survives every
+    // ``getHTML()`` -> save -> reload cycle. Toggling on an empty selection
+    // arms the mark for the next typed character — same UX as bold/italic.
+    editor.chain().focus().toggleMark('tgSpoiler').run();
   };
 
   const insertEmoji = () => {
@@ -144,7 +190,7 @@ function Toolbar({ editor, disabled }: ToolbarProps) {
         type="button"
         size="sm"
         variant="ghost"
-        className="h-8 w-8 p-0"
+        className={btn(editor.isActive('tgSpoiler'))}
         disabled={disabled}
         onClick={insertSpoiler}
         title="Спойлер"
@@ -203,6 +249,7 @@ export function TipTapEditor({
         autolink: true,
         HTMLAttributes: { class: 'text-primary underline' },
       }),
+      SpoilerMark,
     ],
     content: value || '<p></p>',
     editable: !disabled,

@@ -63,3 +63,15 @@
     height: 100%;
   }
 }
+
+/* Visualise the ``tg-spoiler`` mark inside the TipTap editor so admins can
+   see at a glance which fragments will be hidden behind a Telegram spoiler.
+   Telegram itself paints spoilers as a shimmery grey block; we emulate that
+   with a muted background. The bot transforms ``<span class="tg-spoiler">``
+   into a real ``<tg-spoiler>`` Telegram tag at send time. */
+.tg-spoiler {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  border-radius: 0.25rem;
+  padding: 0 0.15rem;
+}

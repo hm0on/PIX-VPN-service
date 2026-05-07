@@ -13,6 +13,13 @@ class SubscriptionResponse(ORMModel):
     id: int
     user_id: int
     tariff_id: int
+    # ``tariff_name`` is denormalised here so the bot can render the tariff
+    # label ("Basic", "Premium", "FREE", …) on subscription buttons and on
+    # the subscription detail screen without making a second round-trip to
+    # ``GET /tariffs``. Populated by the bot API endpoints (see
+    # ``backend/app/api/bot/profile.py``); left ``None`` if the joined tariff
+    # row was deleted (RESTRICT FK should normally prevent this).
+    tariff_name: str | None = None
     tariff_duration_id: int | None = None
     provider_subscription_id: str | None = None
     key_url: str | None = None

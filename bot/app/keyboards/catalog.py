@@ -24,7 +24,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.keyboards.main_menu import make_button
 from app.utils.texts import TextService
-from app.utils.texts import TextService
 
 
 def _format_rub(amount_kopecks: int) -> str:

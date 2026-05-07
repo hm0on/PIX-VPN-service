@@ -104,8 +104,25 @@ _RE_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
 _RE_OPEN_TAG = re.compile(r"<([a-zA-Z][a-zA-Z0-9-]*)(\s+[^>]*)?>")
 _RE_CLOSE_TAG = re.compile(r"</([a-zA-Z][a-zA-Z0-9-]*)\s*>")
 # Span class="tg-spoiler" → tg-spoiler tag. Anything else with span is dropped.
+#
+# The regex is intentionally lenient about the class attribute value: TipTap
+# (or any other source) may emit additional class tokens alongside our own
+# (e.g. ``class="ProseMirror-tg-spoiler tg-spoiler"`` — depends on how the
+# editor merges attributes). We accept the spoiler whenever ``tg-spoiler``
+# appears as a whitespace-delimited token inside a quoted ``class`` value,
+# regardless of attribute order or surrounding tokens.
 _RE_SPAN_SPOILER_OPEN = re.compile(
-    r"<span\s+[^>]*class=[\"']tg-spoiler[\"'][^>]*>", re.IGNORECASE
+    r"""
+    <span\b                                # opening tag
+    [^>]*?                                 # any other attributes
+    \bclass\s*=\s*                         # class attribute
+    (?P<q>["'])                            # opening quote (captured)
+    (?:[^"'>]*\s)?tg-spoiler(?:\s[^"'>]*)? # tg-spoiler as a whole class token
+    (?P=q)                                 # matching closing quote
+    [^>]*                                  # any trailing attributes
+    >
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
 _RE_SPAN_OPEN = re.compile(r"<span(\s+[^>]*)?>", re.IGNORECASE)
 _RE_SPAN_CLOSE = re.compile(r"</span\s*>", re.IGNORECASE)
@@ -146,14 +163,44 @@ def _normalize_message_html(html: str) -> str:
     out = re.sub(r"</?(ul|ol)\s*[^>]*>", "", out, flags=re.IGNORECASE)
 
     # 5) <span class="tg-spoiler"> → <tg-spoiler>; other <span> → drop tag.
-    out = _RE_SPAN_SPOILER_OPEN.sub("<tg-spoiler>", out)
-    # Any remaining ``</span>`` matched a spoiler or was paired with a generic
-    # span — close as ``</tg-spoiler>`` if a spoiler is open, otherwise drop.
-    # We don't track open/close pairs precisely; instead, replace remaining
-    # opens with empty and closes with the spoiler close. In practice TipTap
-    # only emits spoiler spans because that's the only span we author.
-    out = _RE_SPAN_OPEN.sub("", out)
-    out = _RE_SPAN_CLOSE.sub("</tg-spoiler>", out)
+    #
+    # We can't use independent regex.sub passes here: a non-spoiler ``<span>``
+    # followed by ``</span>`` would leave an orphan close that the next pass
+    # converts to ``</tg-spoiler>``, producing unbalanced spoilers in the
+    # output. Instead we do one ordered pass and track which open ``<span>``
+    # actually became a spoiler so we know whether to close it as
+    # ``</tg-spoiler>`` or drop it.
+    parts: list[str] = []
+    cursor = 0
+    span_stack: list[bool] = []  # True if the open span produced a spoiler
+    while cursor < len(out):
+        m_open = _RE_SPAN_OPEN.search(out, cursor)
+        m_close = _RE_SPAN_CLOSE.search(out, cursor)
+        # Pick whichever comes first.
+        if m_open is not None and (m_close is None or m_open.start() < m_close.start()):
+            parts.append(out[cursor : m_open.start()])
+            opened_text = m_open.group(0)
+            if _RE_SPAN_SPOILER_OPEN.fullmatch(opened_text):
+                parts.append("<tg-spoiler>")
+                span_stack.append(True)
+            else:
+                # Generic <span> — drop the tag, content stays.
+                span_stack.append(False)
+            cursor = m_open.end()
+        elif m_close is not None:
+            parts.append(out[cursor : m_close.start()])
+            is_spoiler = span_stack.pop() if span_stack else False
+            if is_spoiler:
+                parts.append("</tg-spoiler>")
+            cursor = m_close.end()
+        else:
+            parts.append(out[cursor:])
+            break
+    # Close any spoilers the user forgot to close (defensive).
+    for is_spoiler in reversed(span_stack):
+        if is_spoiler:
+            parts.append("</tg-spoiler>")
+    out = "".join(parts)
 
     # 6) Strip any remaining tags that aren't in the Telegram whitelist.
     def _strip_unknown_open(m: re.Match[str]) -> str:
