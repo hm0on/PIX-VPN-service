@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.core.exceptions import (
     FreeTrialAlreadyUsedError,
     NorthLineClientError,
@@ -22,7 +21,6 @@ from app.core.logging import (
     get_logger,
     tech_log,
 )
-from app.db.models.outbox import OUTBOX_MSG_TEXT
 from app.db.models.subscription import (
     SUB_STATUS_ACTIVE,
     SUB_STATUS_FAILED,
@@ -31,7 +29,6 @@ from app.db.models.subscription import (
 )
 from app.db.models.tariff import Tariff
 from app.db.models.user import User
-from app.repositories.outbox_repo import OutboxRepository
 from app.repositories.subscription_repo import SubscriptionRepository
 from app.services.northline_client import NorthLineClient
 
@@ -50,7 +47,6 @@ class FreeTrialService:
         self.session = session
         self.northline = northline
         self.repo = SubscriptionRepository(session)
-        self.outbox_repo = OutboxRepository(session)
 
     async def is_free_trial_used(self, *, user_id: int) -> bool:
         return await self.repo.has_free_trial(user_id=user_id)
@@ -153,29 +149,15 @@ class FreeTrialService:
         sub.expires_at = now + timedelta(days=days)
         await self.session.flush()
 
-        # Outbox: send the key to the user.
-        settings = get_settings()
-        howto_url = settings.howto_connect_url or ""
-        await self.outbox_repo.enqueue(
-            user_id=user.id,
-            chat_id=user.tg_id,
-            message_type=OUTBOX_MSG_TEXT,
-            payload={
-                "text_key": "key_issued_free_trial",
-                "format_kwargs": {"key_url": sub.key_url, "days": days},
-                "parse_mode": "HTML",
-                "buttons": (
-                    [
-                        {
-                            "text": "Как подключиться",
-                            "url": howto_url,
-                        }
-                    ]
-                    if howto_url
-                    else []
-                ),
-            },
-        )
+        # No outbox enqueue here. The bot endpoint that calls this service
+        # awaits NorthLine synchronously and edits the original chat message
+        # to ``key_issued_free_trial`` itself (see
+        # ``bot/app/handlers/catalog.py::_handle_free_trial``). Enqueuing an
+        # outbox message in addition produced a duplicate delivery — the
+        # synchronous edit (with the proper ``key_issued_kb``) followed
+        # immediately by the worker's outbox message (which only had a single
+        # «Как подключиться» button). Mirrors the same fix applied to the
+        # paid-purchase path in ``BalanceService.purchase_with_balance``.
 
         await business_log(
             self.session,

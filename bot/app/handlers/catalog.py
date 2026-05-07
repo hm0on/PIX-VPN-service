@@ -187,10 +187,26 @@ async def _handle_free_trial(
 ) -> None:
     """Activate the FREE trial and send the key inline.
 
+    UX mirrors the paid balance-purchase path in
+    ``handlers/purchase.py::_purchase_with_balance``:
+
+    1. Edit the current message to the ``key_issuing`` placeholder
+       ("⏳ Выдаём ключ...") so the user gets immediate feedback while
+       NorthLine provisions the key (can take a few seconds).
+    2. On success, edit the same message to ``key_issued_free_trial`` with
+       the proper ``key_issued_kb`` keyboard.
+
+    The backend deliberately does NOT enqueue an outbox message for the
+    free-trial flow — the synchronous edit IS the delivery. See
+    ``backend/app/services/free_trial_service.py`` for the matching note.
+
     Backend errors of interest:
     - ``free_trial_already_used`` → friendly explanation + back.
     - ``vpn_provider_unavailable`` → "try later" + back.
     """
+    placeholder_text = await texts.get("key_issuing")
+    await safe_edit_or_answer(callback, placeholder_text, reply_markup=None)
+
     try:
         result = await api.activate_free_trial(tg_id)
     except BackendClientError as exc:
@@ -231,12 +247,17 @@ async def _handle_free_trial(
         )
         return
 
+    # Backend returns ``{"subscription": {..., "key_url": "..."}}``
+    # (FreeTrialResponse wraps SubscriptionResponse). Reading the key fields
+    # directly from ``result`` would silently produce empty strings — the
+    # bug that left "Ваш ключ:" blank in the rendered message.
+    sub_data: dict[str, Any] = result.get("subscription") or {}
     entry = await texts.get_entry(
         "key_issued_free_trial",
-        key_url=result.get("key_url", ""),
-        days=result.get("days", 3),
-        devices=result.get("devices", 3),
-        subscription_id=result.get("subscription_id", ""),
+        key_url=sub_data.get("key_url", ""),
+        days=sub_data.get("days", 3),
+        devices=sub_data.get("devices", 3),
+        subscription_id=sub_data.get("id", ""),
     )
     await safe_edit_or_send_media(
         callback,
@@ -253,7 +274,7 @@ async def _handle_free_trial(
         message="Free trial issued",
         context={
             "tg_id": tg_id,
-            "subscription_id": result.get("subscription_id"),
+            "subscription_id": sub_data.get("id"),
         },
     )
 
