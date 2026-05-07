@@ -24,6 +24,7 @@ from app.handlers._common import (
     report_backend_unavailable,
     report_unexpected,
     safe_edit_or_answer,
+    safe_edit_or_send_media,
 )
 from app.keyboards.catalog import (
     apply_discount,
@@ -101,8 +102,10 @@ async def cb_catalog(
         )
         return
 
-    text = await texts.get("catalog_header")
-    await safe_edit_or_answer(callback, text, reply_markup=catalog_kb(tariffs))
+    entry = await texts.get_entry("catalog_header")
+    await safe_edit_or_send_media(
+        callback, entry, reply_markup=catalog_kb(tariffs)
+    )
 
 
 # ---- tariff pick -----------------------------------------------------------
@@ -162,14 +165,14 @@ async def cb_tariff(
     # NB: backend's ``tariff_durations_header`` template uses
     # ``{tariff_description}`` (see backend/app/seeds.py); the field on the
     # API response is ``description_html``. Keep both in sync here.
-    text = await texts.get(
+    entry = await texts.get_entry(
         "tariff_durations_header",
         tariff_name=tariff.get("name", ""),
         tariff_description=tariff.get("description_html") or "",
     )
     durations = tariff.get("durations") or []
-    await safe_edit_or_answer(
-        callback, text, reply_markup=tariff_durations_kb(tariff_id, durations)
+    await safe_edit_or_send_media(
+        callback, entry, reply_markup=tariff_durations_kb(tariff_id, durations)
     )
 
 
@@ -509,8 +512,10 @@ async def cb_catalog_message(
         )
         return
 
-    text = await texts.get("catalog_header")
-    await message.answer(text, reply_markup=catalog_kb(tariffs))
+    entry = await texts.get_entry("catalog_header")
+    await safe_edit_or_send_media(
+        message, entry, reply_markup=catalog_kb(tariffs)
+    )
 
 
 @router.callback_query(F.data == "promo_retry", PurchaseStates.promo_input)
@@ -562,14 +567,14 @@ async def cb_duration_back(
         await cb_catalog(callback, api=api, texts=texts, state=state, db_user=db_user)
         return
 
-    text = await texts.get(
+    entry = await texts.get_entry(
         "tariff_durations_header",
         tariff_name=tariff.get("name", ""),
         tariff_description=tariff.get("description_html") or "",
     )
     durations = tariff.get("durations") or []
-    await safe_edit_or_answer(
-        callback, text, reply_markup=tariff_durations_kb(tariff_id, durations)
+    await safe_edit_or_send_media(
+        callback, entry, reply_markup=tariff_durations_kb(tariff_id, durations)
     )
 
 
