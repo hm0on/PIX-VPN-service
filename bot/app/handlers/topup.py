@@ -23,6 +23,7 @@ from app.handlers._common import (
     report_backend_unavailable,
     report_unexpected,
     safe_edit_or_answer,
+    safe_edit_or_send_media,
 )
 from app.keyboards.catalog import payment_link_kb
 from app.keyboards.common import back_kb
@@ -52,8 +53,10 @@ async def cb_topup_start(
     await state.clear()
     await state.set_state(TopupStates.amount_input)
 
-    text = await texts.get("topup_amount_prompt", min_amount=_MIN_RUB)
-    await safe_edit_or_answer(callback, text, reply_markup=await topup_back_kb(texts))
+    entry = await texts.get_entry("topup_amount_prompt", min_amount=_MIN_RUB)
+    await safe_edit_or_send_media(
+        callback, entry, reply_markup=await topup_back_kb(texts)
+    )
 
 
 @router.message(TopupStates.amount_input)
@@ -85,8 +88,10 @@ async def msg_topup_amount(
     await state.update_data(amount_kopecks=amount_kopecks)
     await state.set_state(TopupStates.payment_method)
 
-    text = await texts.get("topup_method_prompt", amount=rub)
-    await message.answer(text, reply_markup=await topup_methods_kb(texts))
+    entry = await texts.get_entry("topup_method_prompt", amount=rub)
+    await safe_edit_or_send_media(
+        message, entry, reply_markup=await topup_methods_kb(texts)
+    )
 
     await bot_log(
         api,
@@ -175,14 +180,16 @@ async def cb_topup_pay(
         )
         return
 
-    text = await texts.get(
+    entry = await texts.get_entry(
         "payment_invoice",
         amount=amount_kopecks // 100,
         payment_id=payment_id or "",
         provider=provider,
     )
-    await safe_edit_or_answer(
-        callback, text, reply_markup=await payment_link_kb(payment_url, text_service=texts)
+    await safe_edit_or_send_media(
+        callback,
+        entry,
+        reply_markup=await payment_link_kb(payment_url, text_service=texts),
     )
 
     # Top-up doesn't have an "awaiting" FSM — clear and let the worker take

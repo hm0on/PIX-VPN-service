@@ -27,6 +27,7 @@ from app.handlers._common import (
     report_backend_unavailable,
     report_unexpected,
     safe_edit_or_answer,
+    safe_edit_or_send_media,
 )
 from app.keyboards.catalog import (
     key_issued_kb,
@@ -172,16 +173,16 @@ async def _pay_with_balance(
     payment_id = result.get("payment_id", "")
     key_url = sub_payload.get("key_url", "")
 
-    text = await texts.get(
+    entry = await texts.get_entry(
         "key_issued",
         key_url=key_url,
         payment_id=payment_id,
         subscription_id=sub_payload.get("id", ""),
         amount=int(result.get("balance_after_kopecks", 0)) // 100,
     )
-    await safe_edit_or_answer(
+    await safe_edit_or_send_media(
         callback,
-        text,
+        entry,
         reply_markup=await key_issued_kb(
             settings.HOWTO_CONNECT_URL, text_service=texts
         ),
@@ -317,14 +318,16 @@ async def _pay_with_provider(
         )
         return
 
-    text = await texts.get(
+    entry = await texts.get_entry(
         "payment_invoice",
         amount=int(result.get("amount_kopecks", 0)) // 100,
         payment_id=payment_id or "",
         provider=provider,
     )
-    await safe_edit_or_answer(
-        callback, text, reply_markup=await payment_link_kb(payment_url, text_service=texts)
+    await safe_edit_or_send_media(
+        callback,
+        entry,
+        reply_markup=await payment_link_kb(payment_url, text_service=texts),
     )
 
     await state.update_data(payment_id=payment_id, provider=provider)

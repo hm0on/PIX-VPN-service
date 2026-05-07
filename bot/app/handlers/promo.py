@@ -25,7 +25,7 @@ from app.api_client import BackendClient
 from app.handlers._common import (
     report_backend_unavailable,
     report_unexpected,
-    safe_edit_or_answer,
+    safe_edit_or_send_media,
 )
 from app.keyboards.common import back_kb
 from app.states.purchase import PromoStates
@@ -54,9 +54,9 @@ async def cb_promo_open(
     """
     await state.clear()
     await state.set_state(PromoStates.input)
-    text = await texts.get("promo_input_prompt")
-    await safe_edit_or_answer(
-        callback, text, reply_markup=back_kb(callback="main_menu")
+    entry = await texts.get_entry("promo_input_prompt")
+    await safe_edit_or_send_media(
+        callback, entry, reply_markup=back_kb(callback="main_menu")
     )
 
 
@@ -137,12 +137,14 @@ async def msg_promo_apply(
     if promo_type == "balance":
         amount_kop = int(result.get("amount_kopecks", 0) or 0)
         balance_kop = int(result.get("balance_kopecks", 0) or 0)
-        text = await texts.get(
+        entry = await texts.get_entry(
             "promo_balance_applied",
             amount=amount_kop // 100,
             balance=balance_kop // 100,
         )
-        await message.answer(text, reply_markup=back_kb(callback="main_menu"))
+        await safe_edit_or_send_media(
+            message, entry, reply_markup=back_kb(callback="main_menu")
+        )
         await state.clear()
         await bot_log(
             api,
@@ -161,8 +163,10 @@ async def msg_promo_apply(
     if promo_type == "discount_percent":
         # Discount promos are useless without a purchase — explain and
         # leave the user at the main menu so they can pick a tariff.
-        text = await texts.get("promo_discount_requires_purchase")
-        await message.answer(text, reply_markup=back_kb(callback="main_menu"))
+        entry = await texts.get_entry("promo_discount_requires_purchase")
+        await safe_edit_or_send_media(
+            message, entry, reply_markup=back_kb(callback="main_menu")
+        )
         await state.clear()
         await bot_log(
             api,

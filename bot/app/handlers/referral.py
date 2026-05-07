@@ -21,7 +21,7 @@ from app.api_client import BackendClient
 from app.handlers._common import (
     report_backend_unavailable,
     report_unexpected,
-    safe_edit_or_answer,
+    safe_edit_or_send_media,
 )
 from app.keyboards.profile import referral_kb
 from app.utils.errors import BackendUnavailableError
@@ -69,7 +69,7 @@ async def cb_referral_program(
     # Backend's ``referral_program_screen`` template uses ``{invited}``
     # (see backend/app/seeds.py); pass ``count`` too so older seeds stay
     # tolerant if redeployed without re-seed.
-    text = await texts.get(
+    entry = await texts.get_entry(
         "referral_program_screen",
         ref_link=ref_link,
         invited=invited,
@@ -83,8 +83,8 @@ async def cb_referral_program(
         if ref_link
         else "Подключи безлимитный VPN со скидкой 10% на первую покупку!"
     )
-    await safe_edit_or_answer(
+    await safe_edit_or_send_media(
         callback,
-        text,
+        entry,
         reply_markup=await referral_kb(ref_link, share_text, texts),
     )

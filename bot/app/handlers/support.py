@@ -36,6 +36,7 @@ from app.handlers._common import (
     report_backend_unavailable,
     report_unexpected,
     safe_edit_or_answer,
+    safe_edit_or_send_media,
 )
 from app.keyboards.ticket import (
     CB_TICKET_CLOSE_NO,
@@ -105,8 +106,8 @@ async def _enter_active_ticket(
     """
     code = str(ticket.get("code") or "")
     kind = str(ticket.get("kind") or "support")
-    text = await texts.get(text_key, code=code)
-    await safe_edit_or_answer(callback, text)
+    entry = await texts.get_entry(text_key, code=code)
+    await safe_edit_or_send_media(callback, entry)
 
     await state.set_state(TicketStates.in_ticket)
     await state.update_data(
@@ -159,9 +160,9 @@ async def cb_support(
         return
 
     if ticket is None:
-        text = await texts.get("support_no_active_ticket")
-        await safe_edit_or_answer(
-            callback, text, reply_markup=await support_no_ticket_kb(texts)
+        entry = await texts.get_entry("support_no_active_ticket")
+        await safe_edit_or_send_media(
+            callback, entry, reply_markup=await support_no_ticket_kb(texts)
         )
         return
 
@@ -205,9 +206,9 @@ async def cb_idea(
         return
 
     if ticket is None:
-        text = await texts.get("idea_no_active_ticket")
-        await safe_edit_or_answer(
-            callback, text, reply_markup=await idea_no_ticket_kb(texts)
+        entry = await texts.get_entry("idea_no_active_ticket")
+        await safe_edit_or_send_media(
+            callback, entry, reply_markup=await idea_no_ticket_kb(texts)
         )
         return
 
@@ -290,8 +291,8 @@ async def cb_ticket_create(
     code = str(ticket.get("code") or "")
     text_key = "support_ticket_created" if kind == "support" else "idea_ticket_created"
 
-    text = await texts.get(text_key, code=code)
-    await safe_edit_or_answer(callback, text)
+    entry = await texts.get_entry(text_key, code=code)
+    await safe_edit_or_send_media(callback, entry)
 
     await state.set_state(TicketStates.in_ticket)
     await state.update_data(

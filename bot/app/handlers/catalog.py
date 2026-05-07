@@ -231,16 +231,16 @@ async def _handle_free_trial(
         )
         return
 
-    text = await texts.get(
+    entry = await texts.get_entry(
         "key_issued_free_trial",
         key_url=result.get("key_url", ""),
         days=result.get("days", 3),
         devices=result.get("devices", 3),
         subscription_id=result.get("subscription_id", ""),
     )
-    await safe_edit_or_answer(
+    await safe_edit_or_send_media(
         callback,
-        text,
+        entry,
         reply_markup=await key_issued_kb(
             settings.HOWTO_CONNECT_URL, text_service=texts
         ),
@@ -286,8 +286,8 @@ async def cb_duration(
     await state.update_data(tariff_id=tariff_id, duration_id=duration_id)
     await state.set_state(PurchaseStates.promo_input)
 
-    text = await texts.get("promo_input_prompt")
-    await safe_edit_or_answer(callback, text, reply_markup=promo_skip_kb())
+    entry = await texts.get_entry("promo_input_prompt")
+    await safe_edit_or_send_media(callback, entry, reply_markup=promo_skip_kb())
 
 
 _PROMO_CODE_MIN = 1
@@ -376,12 +376,14 @@ async def msg_promo_input(
     if promo_type == "balance":
         amount_kop = int(result.get("amount_kopecks", 0) or 0)
         balance_kop = int(result.get("balance_kopecks", 0) or 0)
-        text = await texts.get(
+        entry = await texts.get_entry(
             "promo_balance_applied",
             amount=amount_kop // 100,
             balance=balance_kop // 100,
         )
-        await message.answer(text, reply_markup=back_kb(callback="main_menu"))
+        await safe_edit_or_send_media(
+            message, entry, reply_markup=back_kb(callback="main_menu")
+        )
         await state.clear()
         await bot_log(
             api,
@@ -450,13 +452,14 @@ async def msg_promo_input(
         )
         await state.set_state(PurchaseStates.payment_method)
 
-        text = await texts.get(
+        entry = await texts.get_entry(
             "promo_discount_applied",
             percent=percent,
             amount=final_amount // 100,
         )
-        await message.answer(
-            text,
+        await safe_edit_or_send_media(
+            message,
+            entry,
             reply_markup=await payment_methods_kb(
                 base_amount,
                 balance_kop,
@@ -524,8 +527,8 @@ async def cb_promo_retry(
     texts: TextService,
 ) -> None:
     """Re-show the promo prompt without leaving the state."""
-    text = await texts.get("promo_input_prompt")
-    await safe_edit_or_answer(callback, text, reply_markup=promo_skip_kb())
+    entry = await texts.get_entry("promo_input_prompt")
+    await safe_edit_or_send_media(callback, entry, reply_markup=promo_skip_kb())
 
 
 # ---- duration_back: re-render duration list (kept tariff_id in FSM) --------
@@ -637,14 +640,14 @@ async def cb_promo_skip(
     )
     await state.set_state(PurchaseStates.payment_method)
 
-    text = await texts.get(
+    entry = await texts.get_entry(
         "pay_method_header",
         amount=amount // 100,
         balance=balance // 100,
         tariff_name=tariff.get("name", ""),
     )
-    await safe_edit_or_answer(
+    await safe_edit_or_send_media(
         callback,
-        text,
+        entry,
         reply_markup=await payment_methods_kb(amount, balance, text_service=texts),
     )
