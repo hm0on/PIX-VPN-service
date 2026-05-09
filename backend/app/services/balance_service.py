@@ -224,6 +224,9 @@ class BalanceService:
                 days=duration.days,
                 devices=tariff.devices,
                 idempotency_key=idempotency_key,
+                # LTE add-on size from the tariff (default 35GB for all
+                # public tariffs, set per-row via migration 0012).
+                lte_gb=getattr(tariff, "lte_gb_per_month", None),
                 metadata={
                     "user_tg_id": locked_user.tg_id,
                     "internal_subscription_id": str(sub.id),

@@ -97,6 +97,41 @@ async def test_purchase_with_balance_happy(client, auth_headers, seed_db, app): 
 
 
 @pytest.mark.asyncio
+async def test_purchase_with_balance_passes_lte_gb_from_tariff(  # noqa: ANN001
+    client, auth_headers, seed_db, app
+):
+    """``balance_service`` must forward ``tariff.lte_gb_per_month`` to NorthLine.
+
+    Migration 0012 added the column with default 35 — every public tariff
+    therefore bundles 35GB of LTE. If we forget to read the column at
+    issue time, the provider treats keys as «no LTE» and users silently
+    lose the bundle.
+    """
+    nl_mock = _make_northline_mock()
+    app.dependency_overrides[get_northline_client] = lambda: nl_mock
+
+    await client.post(
+        "/api/bot/users",
+        headers=auth_headers,
+        json={"tg_id": 6010, "username": "lte_check"},
+    )
+    tariff_id, duration_id, price = await _get_basic_30_days()
+    await _credit_balance(6010, price + 50000)
+
+    r = await client.post(
+        "/api/bot/purchase/balance",
+        headers=auth_headers,
+        json={"tg_id": 6010, "tariff_id": tariff_id, "duration_id": duration_id},
+    )
+    assert r.status_code == 200, r.text
+
+    nl_mock.create_key.assert_awaited_once()
+    kwargs = nl_mock.create_key.call_args.kwargs
+    # Default seeded tariffs all carry 35GB after the migration.
+    assert kwargs.get("lte_gb") == 35
+
+
+@pytest.mark.asyncio
 async def test_purchase_with_balance_ignores_provider_expires_at(  # noqa: ANN001
     client, auth_headers, seed_db, app
 ):

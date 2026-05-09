@@ -7,6 +7,8 @@ from app.api.admin import (
     broadcasts,
     health,
     logs,
+    northline,
+    payments as payments_admin,
     promos,
     stats,
     subscriptions,
@@ -64,5 +66,19 @@ admin_router.include_router(
 admin_router.include_router(
     logs.router,
     prefix="/logs",
+    dependencies=[Depends(require_admin_jwt)],
+)
+
+# NorthLine reseller proxy endpoints (profile, prices, lte, branding).
+admin_router.include_router(
+    northline.router,
+    prefix="/northline",
+    dependencies=[Depends(require_admin_jwt)],
+)
+
+# Global payments listing (per-user listing already exists on /users/{id}).
+admin_router.include_router(
+    payments_admin.router,
+    prefix="/payments",
     dependencies=[Depends(require_admin_jwt)],
 )

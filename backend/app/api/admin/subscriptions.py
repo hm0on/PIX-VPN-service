@@ -25,11 +25,13 @@ from app.db.models.user import User
 from app.deps import AdminDep, DBSession, NorthLineClientDep
 from app.repositories.outbox_repo import OutboxRepository
 from app.schemas.admin_panel.subscriptions import (
+    AdminSubBrandingRequest,
     AdminSubDeactivateRequest,
     AdminSubDeactivateResponse,
     AdminSubDetail,
     AdminSubInfoResponse,
     AdminSubListItem,
+    AdminSubReconcileResponse,
     AdminSubsPage,
 )
 from app.schemas.common import OkResponse
@@ -247,9 +249,15 @@ async def get_subscription_info(
             }
         )
 
+    # NorthLine spec: ``traffic_quota_gb == -1`` means unlimited. Surface
+    # as a flag so the UI doesn't have to interpret a magic int.
+    unlimited = info.traffic_quota_gb is not None and info.traffic_quota_gb < 0
+
     return AdminSubInfoResponse(
+        provider_status=info.status,
         traffic_bytes=info.traffic_bytes,
         traffic_quota_gb=info.traffic_quota_gb,
+        unlimited_traffic=unlimited,
         lte_traffic_bytes=info.lte_traffic_bytes,
         devices_total=info.devices_total,
         devices_used=info.devices_used,
@@ -359,6 +367,237 @@ async def remove_subscription_device(
     )
     await session.commit()
     return OkResponse(ok=True)
+
+
+@router.put("/{sub_id}/branding", response_model=OkResponse)
+async def set_subscription_branding(
+    sub_id: int,
+    payload: AdminSubBrandingRequest,
+    session: DBSession,
+    admin: AdminDep,
+    northline: NorthLineClientDep,
+) -> OkResponse:
+    """Per-subscription branding override.
+
+    Sends ``PATCH /keys/{provider_id}/branding`` to NorthLine. Empty
+    payloads are rejected with 400 — the upstream already complains, but
+    we'd rather fail fast than burn a request.
+    """
+    sub = await _get_sub_or_404(session, sub_id)
+    if not sub.provider_subscription_id:
+        raise NotFoundError(
+            "Subscription has no NorthLine key id",
+            error_code="provider_subscription_id_missing",
+        )
+
+    fields = payload.model_dump(exclude_unset=True)
+    if not fields:
+        raise NorthLineClientError(
+            error_code="empty_payload",
+            error_message="Branding override requires at least one field",
+            http_status=400,
+        )
+
+    try:
+        await northline.set_subscription_branding(
+            subscription_id=sub.provider_subscription_id,
+            **fields,
+        )
+    except (NorthLineClientError, NorthLineUnavailableError):
+        raise
+
+    await record_admin_action(
+        session,
+        admin,
+        action="subscription.branding.update",
+        target_user_id=sub.user_id,
+        target_subscription_id=sub.id,
+        extra={"fields": sorted(fields.keys())},
+    )
+    await session.commit()
+    return OkResponse(ok=True)
+
+
+@router.post("/{sub_id}/reconcile", response_model=AdminSubReconcileResponse)
+async def reconcile_subscription(
+    sub_id: int,
+    session: DBSession,
+    admin: AdminDep,
+    northline: NorthLineClientDep,
+) -> AdminSubReconcileResponse:
+    """Force-reconcile a single subscription against NorthLine.
+
+    Mirrors the per-row logic of
+    :func:`app.services.subscription_reconcile_service.reconcile_subscriptions`
+    but for one ID, so the admin can resolve drift on demand without
+    waiting for the cron. We deliberately don't import the batch function
+    — it's batch-shaped (skips test rows silently, swallows per-row
+    errors) and what the admin wants here is the verdict, not a counter.
+    """
+    from app.db.models.subscription import (
+        SUB_STATUS_DEACTIVATED,
+        SUB_STATUS_EXPIRED,
+    )
+    from app.services.subscription_reconcile_service import (
+        DRIFT_THRESHOLD,
+        _ensure_utc,
+        _is_test_subscription_id,
+    )
+
+    sub = await _get_sub_or_404(session, sub_id)
+    old_status = sub.status
+    old_expires_at = sub.expires_at
+
+    if not sub.provider_subscription_id:
+        raise NotFoundError(
+            "Subscription has no NorthLine key id",
+            error_code="provider_subscription_id_missing",
+        )
+    if _is_test_subscription_id(sub.provider_subscription_id):
+        return AdminSubReconcileResponse(
+            subscription_id=sub.id,
+            action="skipped_test",
+            old_status=old_status,
+            new_status=old_status,
+            old_expires_at=old_expires_at,
+            new_expires_at=old_expires_at,
+            message="Test-mode subscription — provider does not track it.",
+        )
+
+    now = datetime.now(tz=UTC)
+    try:
+        info = await northline.get_key(
+            subscription_id=str(sub.provider_subscription_id)
+        )
+    except NorthLineClientError as exc:
+        if (exc.error_code or "").lower() in {"invalid_provider_key", "not_found"}:
+            sub.status = SUB_STATUS_DEACTIVATED
+            sub.deactivated_at = now
+            sub.deactivation_reason = (
+                f"Reconcile (admin): provider returned {exc.error_code}"
+            )
+            await session.commit()
+            return AdminSubReconcileResponse(
+                subscription_id=sub.id,
+                action="provider_unknown_key",
+                old_status=old_status,
+                new_status=sub.status,
+                old_expires_at=old_expires_at,
+                new_expires_at=sub.expires_at,
+                message=(
+                    f"Provider does not know subscription "
+                    f"{sub.provider_subscription_id}; marked deactivated."
+                ),
+            )
+        raise
+
+    provider_status = (info.status or "").lower()
+    if provider_status and provider_status != "active":
+        new_status = (
+            SUB_STATUS_DEACTIVATED
+            if provider_status == "suspended"
+            else SUB_STATUS_EXPIRED
+        )
+        sub.status = new_status
+        if new_status == SUB_STATUS_DEACTIVATED:
+            sub.deactivated_at = now
+            sub.deactivation_reason = (
+                f"Reconcile (admin): provider status={provider_status}"
+            )
+        await record_admin_action(
+            session,
+            admin,
+            action="subscription.reconcile.flip",
+            target_user_id=sub.user_id,
+            target_subscription_id=sub.id,
+            extra={
+                "provider_status": provider_status,
+                "new_local_status": new_status,
+            },
+        )
+        await session.commit()
+        return AdminSubReconcileResponse(
+            subscription_id=sub.id,
+            action="status_flipped",
+            old_status=old_status,
+            new_status=new_status,
+            old_expires_at=old_expires_at,
+            new_expires_at=sub.expires_at,
+            provider_status=info.status,
+            message=(
+                f"Status drift: local=active provider={provider_status} "
+                f"→ {new_status}."
+            ),
+        )
+
+    provider_exp = _ensure_utc(info.expires_at)
+    local_exp = _ensure_utc(sub.expires_at)
+    if provider_exp is None or local_exp is None:
+        return AdminSubReconcileResponse(
+            subscription_id=sub.id,
+            action="no_change",
+            old_status=old_status,
+            new_status=old_status,
+            old_expires_at=old_expires_at,
+            new_expires_at=old_expires_at,
+            provider_status=info.status,
+            message="No expires_at on one side; nothing to reconcile.",
+        )
+
+    delta = provider_exp - local_exp
+    if delta > DRIFT_THRESHOLD:
+        sub.expires_at = provider_exp
+        await record_admin_action(
+            session,
+            admin,
+            action="subscription.reconcile.extend",
+            target_user_id=sub.user_id,
+            target_subscription_id=sub.id,
+            extra={
+                "old_expires_at": local_exp.isoformat(),
+                "new_expires_at": provider_exp.isoformat(),
+            },
+        )
+        await session.commit()
+        return AdminSubReconcileResponse(
+            subscription_id=sub.id,
+            action="expires_extended",
+            old_status=old_status,
+            new_status=old_status,
+            old_expires_at=local_exp,
+            new_expires_at=provider_exp,
+            provider_status=info.status,
+            message=(
+                f"expires_at pulled forward "
+                f"{local_exp.isoformat()} → {provider_exp.isoformat()}."
+            ),
+        )
+    if -delta > DRIFT_THRESHOLD:
+        # Don't shorten silently — that destroys paid time.
+        return AdminSubReconcileResponse(
+            subscription_id=sub.id,
+            action="expires_shrink_warned",
+            old_status=old_status,
+            new_status=old_status,
+            old_expires_at=local_exp,
+            new_expires_at=local_exp,
+            provider_status=info.status,
+            message=(
+                "Provider has earlier expires_at than local; not shortened "
+                "automatically. Investigate manually if needed."
+            ),
+        )
+
+    return AdminSubReconcileResponse(
+        subscription_id=sub.id,
+        action="no_change",
+        old_status=old_status,
+        new_status=old_status,
+        old_expires_at=local_exp,
+        new_expires_at=local_exp,
+        provider_status=info.status,
+        message="In sync.",
+    )
 
 
 # Compatibility silencer for unused imports

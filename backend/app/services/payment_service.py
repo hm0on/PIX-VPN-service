@@ -569,10 +569,32 @@ class PaymentService:
                     provider_key=settings.northline_provider_key or "",
                     test_mode=bool(settings.northline_test_mode),
                 )
+            # Pull LTE add-on size from the tariff row. New tariffs (and
+            # all the legacy ones backfilled by migration 0012) carry 35GB
+            # by default; custom tariffs may store their own value.
+            tariff_lte_gb: int | None = None
+            try:
+                Tariff = models["Tariff"]
+                if Tariff is not None and sub.tariff_id:
+                    tariff_row = (
+                        await self.session.execute(
+                            select(Tariff).where(Tariff.id == sub.tariff_id)
+                        )
+                    ).scalar_one_or_none()
+                    if tariff_row is not None:
+                        tariff_lte_gb = getattr(
+                            tariff_row, "lte_gb_per_month", None
+                        )
+            except Exception:  # noqa: BLE001
+                # Don't block key issuing on a tariff lookup hiccup — worst
+                # case we issue without LTE, which is recoverable.
+                tariff_lte_gb = None
+
             key_response = await northline_client.create_key(
                 days=sub.days,
                 devices=sub.devices,
                 idempotency_key=idempotency_key,
+                lte_gb=tariff_lte_gb,
                 metadata={
                     "user_id": payment.user_id,
                     "subscription_id": sub.id,

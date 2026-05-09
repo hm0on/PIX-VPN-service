@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+# NorthLine spec enum. Mirrored from app.schemas.northline.NorthLineSubStatus
+# but redeclared here so this module stays free of upstream client imports.
+ProviderSubStatus = Literal["active", "suspended", "expired"]
 
 
 class AdminSubListItem(BaseModel):
@@ -68,14 +72,60 @@ class AdminSubInfoResponse(BaseModel):
     when ``devices`` (the per-device list) is empty.
     """
 
+    # NorthLine subscription status as the provider sees it. Diverging from
+    # our local ``status`` is the whole reason :mod:`subscription_reconcile_service`
+    # exists — surfacing it in the admin response lets ops eyeball drift
+    # without waiting for the reconcile cron.
+    provider_status: ProviderSubStatus | None = None
     traffic_bytes: int | None = None
     traffic_quota_gb: int | None = None
+    # ``-1`` from NorthLine means «безлимит». Surface as a flag so the UI
+    # doesn't have to interpret a magic value.
+    unlimited_traffic: bool = False
     lte_traffic_bytes: int | None = None
     devices_total: int | None = None
     devices_used: int | None = None
     expires_at: datetime | None = None
     devices: list[dict[str, Any]] = Field(default_factory=list)
     raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminSubBrandingRequest(BaseModel):
+    """Per-subscription branding override (PUT /subscriptions/{id}/branding).
+
+    All fields optional — admin can clear an override by sending ``null``.
+    NorthLine accepts the same shape on its ``PATCH /keys/{id}/branding``.
+    """
+
+    custom_domain: str | None = Field(default=None, max_length=253)
+    service_name: str | None = Field(default=None, max_length=128)
+    service_description: str | None = Field(default=None, max_length=512)
+    support_url: str | None = Field(default=None, max_length=512)
+
+
+class AdminSubReconcileResponse(BaseModel):
+    """Result of POST /subscriptions/{id}/reconcile.
+
+    Mirrors the per-row outcome of ``subscription_reconcile_service`` so the
+    admin UI can show ops what changed without re-fetching the row.
+    """
+
+    subscription_id: int
+    action: Literal[
+        "no_change",
+        "status_flipped",
+        "expires_extended",
+        "expires_shrink_warned",
+        "provider_unknown_key",
+        "skipped_test",
+        "api_error",
+    ]
+    old_status: str
+    new_status: str
+    old_expires_at: datetime | None = None
+    new_expires_at: datetime | None = None
+    provider_status: ProviderSubStatus | None = None
+    message: str | None = None
 
 
 class AdminSubDeactivateRequest(BaseModel):

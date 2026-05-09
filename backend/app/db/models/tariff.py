@@ -31,6 +31,13 @@ class Tariff(IntPK, Base):
         Boolean, nullable=False, server_default="false", default=False
     )
     free_trial_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # LTE add-on выдаваемый вместе с ключом NorthLine. Передаётся как
+    # ``lte_gb`` в ``POST /keys`` (см. NorthLineClient.create_key). 35GB —
+    # дефолт для всех текущих тарифов; кастомные тарифы (безлимит и т.п.)
+    # позже смогут хранить своё значение в этой же колонке.
+    lte_gb_per_month: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="35", default=35
+    )
 
     durations: Mapped[list["TariffDuration"]] = relationship(
         back_populates="tariff",
