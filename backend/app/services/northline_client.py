@@ -34,10 +34,15 @@ from tenacity import (
 from app.core.exceptions import NorthLineClientError, NorthLineUnavailableError
 from app.core.logging import get_logger, get_trace_id
 from app.schemas.northline import (
+    BrandingResponse,
     DeactivateResponse,
     ExtendResponse,
     KeyInfo,
     KeyResponse,
+    LtePackagesResponse,
+    PriceQuote,
+    ResellerPrices,
+    ResellerProfile,
 )
 
 logger = get_logger("northline_client")
@@ -203,12 +208,21 @@ class NorthLineClient:
         devices: int,
         idempotency_key: str,
         metadata: dict[str, Any] | None = None,
+        unlimited_traffic: bool | None = None,
+        lte_gb: int | None = None,
+        branding: dict[str, Any] | None = None,
     ) -> KeyResponse:
         """POST /keys — create a new VPN subscription.
 
         When ``self.test_mode`` is ``True`` the request includes ``"test": true``
         and the provider returns a fake ``subscription_id`` + key URL without
         debiting the reseller balance.
+
+        Optional NorthLine extras:
+            - ``unlimited_traffic`` — +50% к цене, безлимит вместо 1 ТБ/устр.
+            - ``lte_gb`` — LTE-пакет (округляется ВВЕРХ к ближайшему по тарифу).
+            - ``branding`` — per-subscription override
+              (``custom_domain``/``service_name``/``service_description``/``support_url``).
         """
         body: dict[str, Any] = {
             "provider_key": self.provider_key,
@@ -219,6 +233,12 @@ class NorthLineClient:
         }
         if self.test_mode:
             body["test"] = True
+        if unlimited_traffic is not None:
+            body["unlimited_traffic"] = unlimited_traffic
+        if lte_gb is not None:
+            body["lte_gb"] = lte_gb
+        if branding is not None:
+            body["branding"] = branding
         started = time.perf_counter()
         data = await self._request("POST", "/keys", json_body=body)
         await self._tech_log(
@@ -229,6 +249,8 @@ class NorthLineClient:
                 "devices": devices,
                 "idempotency_key": idempotency_key,
                 "test_mode": self.test_mode,
+                "unlimited_traffic": unlimited_traffic,
+                "lte_gb": lte_gb,
             },
         )
         return KeyResponse.model_validate(data)
@@ -325,11 +347,51 @@ class NorthLineClient:
             return False
         return bool(data.get("ok"))
 
+    # ----- Reseller (profile / prices / lte) -----
+
+    async def get_profile(self) -> ResellerProfile:
+        """GET /reseller/profile — баланс реселлера + статистика."""
+        data = await self._request("GET", "/reseller/profile")
+        return ResellerProfile.model_validate(data)
+
+    async def price_quote(
+        self,
+        *,
+        days: int = 30,
+        devices: int = 3,
+        unlimited: bool = False,
+        lte_gb: int = 0,
+    ) -> PriceQuote:
+        """GET /reseller/price-quote — публичный калькулятор стоимости.
+
+        Авторизация не требуется, но мы всё равно используем общий клиент с
+        Bearer-токеном — провайдер просто игнорирует заголовок на этом пути.
+        """
+        params: dict[str, Any] = {
+            "days": days,
+            "devices": devices,
+            "unlimited": 1 if unlimited else 0,
+            "lte_gb": lte_gb,
+        }
+        data = await self._request("GET", "/reseller/price-quote", params=params)
+        return PriceQuote.model_validate(data)
+
+    async def get_prices(self) -> ResellerPrices:
+        """GET /reseller/prices — матрица цен текущего партнёра."""
+        data = await self._request("GET", "/reseller/prices")
+        return ResellerPrices.model_validate(data)
+
+    async def get_lte_packages(self) -> LtePackagesResponse:
+        """GET /reseller/lte-packages — справочник LTE-пакетов (public)."""
+        data = await self._request("GET", "/reseller/lte-packages")
+        return LtePackagesResponse.model_validate(data)
+
     # ----- Branding (white-label defaults) -----
 
-    async def get_branding(self) -> dict[str, Any]:
+    async def get_branding(self) -> BrandingResponse:
         """GET /reseller/branding — fetch current key-level branding defaults."""
-        return await self._request("GET", "/reseller/branding")
+        data = await self._request("GET", "/reseller/branding")
+        return BrandingResponse.model_validate(data)
 
     async def set_branding(
         self,
@@ -362,6 +424,41 @@ class NorthLineClient:
             "northline:set_branding",
             started=started,
             payload={"fields": sorted(body.keys())},
+        )
+        return data
+
+    async def set_subscription_branding(
+        self,
+        *,
+        subscription_id: str,
+        custom_domain: str | None = None,
+        service_name: str | None = None,
+        service_description: str | None = None,
+        support_url: str | None = None,
+    ) -> dict[str, Any]:
+        """PATCH /keys/{id}/branding — per-subscription branding override."""
+        body: dict[str, Any] = {}
+        if custom_domain is not None:
+            body["custom_domain"] = custom_domain
+        if service_name is not None:
+            body["service_name"] = service_name
+        if service_description is not None:
+            body["service_description"] = service_description
+        if support_url is not None:
+            body["support_url"] = support_url
+        if not body:
+            raise ValueError("set_subscription_branding requires at least one field")
+        started = time.perf_counter()
+        data = await self._request(
+            "PATCH", f"/keys/{subscription_id}/branding", json_body=body
+        )
+        await self._tech_log(
+            "northline:set_subscription_branding",
+            started=started,
+            payload={
+                "subscription_id": subscription_id,
+                "fields": sorted(body.keys()),
+            },
         )
         return data
 

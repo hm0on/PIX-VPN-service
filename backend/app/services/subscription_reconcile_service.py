@@ -146,10 +146,11 @@ async def reconcile_subscriptions(
             # Provider says the key is unknown. In *test* mode this is
             # routine; in prod it means the row is genuinely gone — flip
             # to deactivated so the user/admin sees the truth.
+            # NorthLine spec: 400 INVALID_PROVIDER_KEY / 404 NOT_FOUND.
+            # error_code приходит UPPER, в исключении хранится как есть —
+            # сравниваем case-insensitive.
             if (exc.error_code or "").lower() in {
                 "invalid_provider_key",
-                "key_not_found",
-                "subscription_not_found",
                 "not_found",
             }:
                 sub.status = SUB_STATUS_DEACTIVATED
@@ -194,12 +195,13 @@ async def reconcile_subscriptions(
         # ----- Status drift -----
         provider_status = (info.status or "").lower()
         if provider_status and provider_status != "active":
-            # Map provider status onto our enum. We treat anything
-            # non-active as "expired" unless the provider explicitly
-            # says it was deactivated/disabled.
+            # NorthLine spec статусы: ``active | suspended | expired``.
+            # ``suspended`` (новый промежуточный статус) → deactivated;
+            # ``expired`` → expired. Любые иные значения (форвард-совмест) →
+            # expired по умолчанию.
             new_status = (
                 SUB_STATUS_DEACTIVATED
-                if provider_status in {"deactivated", "disabled", "cancelled"}
+                if provider_status == "suspended"
                 else SUB_STATUS_EXPIRED
             )
             sub.status = new_status
