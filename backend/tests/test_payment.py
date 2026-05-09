@@ -135,6 +135,10 @@ async def test_purchase_start_sbp(
     assert data["subscription_id"] > 0
     assert data["payment_url"].startswith("https://pay.example.test/")
     assert "expires_at" in data
+    # Regression: the bot renders «Сумма: X ₽» on its invoice card from
+    # this field. When it was missing the bot fell back to 0 and users
+    # saw "Сумма: 0 ₽" on a 189 ₽ order.
+    assert data["amount_kopecks"] == 18900
 
 
 @pytest.mark.asyncio
@@ -155,6 +159,7 @@ async def test_purchase_start_cryptobot(
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["payment_url"].startswith("https://t.me/CryptoBot")
+    assert data["amount_kopecks"] == 18900
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +201,9 @@ async def test_topup_create_ok(
     data = r.json()
     assert data["payment_id"] > 0
     assert data["payment_url"].startswith("https://pay.example.test/")
+    # Regression: same root cause as the purchase-start bug — the bot reads
+    # this field to render «Сумма: X ₽» on the top-up invoice card.
+    assert data["amount_kopecks"] == 50000
 
 
 # ---------------------------------------------------------------------------

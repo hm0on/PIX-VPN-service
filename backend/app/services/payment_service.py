@@ -251,6 +251,7 @@ class PaymentService:
             "subscription_id": sub.id,
             "payment_url": invoice.payment_url,
             "expires_at": _payment_expires_at(),
+            "amount_kopecks": amount_kopecks,
         }
 
     # -------------------- Top-up --------------------
@@ -328,6 +329,7 @@ class PaymentService:
             "payment_id": payment.id,
             "payment_url": invoice.payment_url,
             "expires_at": _payment_expires_at(),
+            "amount_kopecks": amount_kopecks,
         }
 
     # -------------------- Webhook processing --------------------

@@ -35,4 +35,5 @@ async def topup_create(
         payment_id=result["payment_id"],
         payment_url=result["payment_url"],
         expires_at=result["expires_at"],
+        amount_kopecks=result["amount_kopecks"],
     )

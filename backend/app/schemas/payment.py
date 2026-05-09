@@ -23,6 +23,11 @@ class PurchaseStartResponse(BaseModel):
     subscription_id: int
     payment_url: str
     expires_at: datetime
+    # Echoed back so the bot can render the «Сумма: X ₽» line on the
+    # invoice card without a second round-trip. Without this the bot
+    # falls back to ``0`` and shows "Сумма: 0 ₽" — see the regression
+    # test in ``tests/test_purchase_endpoint.py``.
+    amount_kopecks: int
 
 
 class TopupCreateRequest(BaseModel):
@@ -35,3 +40,7 @@ class TopupCreateResponse(BaseModel):
     payment_id: int
     payment_url: str
     expires_at: datetime
+    # Same rationale as ``PurchaseStartResponse.amount_kopecks``: the bot's
+    # invoice template needs the amount, and the source of truth is the
+    # backend (after any provider-side rounding / currency conversion).
+    amount_kopecks: int

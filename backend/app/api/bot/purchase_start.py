@@ -37,4 +37,5 @@ async def purchase_start(
         subscription_id=result["subscription_id"],
         payment_url=result["payment_url"],
         expires_at=result["expires_at"],
+        amount_kopecks=result["amount_kopecks"],
     )
