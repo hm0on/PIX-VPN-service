@@ -1,4 +1,23 @@
-"""Platega webhook endpoint."""
+"""Platega webhook endpoint.
+
+Spec: https://docs.platega.io/
+
+Авторизация callback'а — два заголовка X-MerchantId / X-Secret должны
+совпадать с нашими credentials. Отдельной HMAC-подписи нет.
+
+Payload:
+    {
+      "id": "<uuid>",
+      "amount": <float>,
+      "currency": "RUB",
+      "status": "CONFIRMED" | "CANCELED" | "CHARGEBACKED",
+      "paymentMethod": <int>,
+      "payload": "<echo>"
+    }
+
+Отвечать 200 в течение 60 секунд, иначе Platega ретраит до 3-х раз
+с интервалом 5 минут.
+"""
 
 from __future__ import annotations
 
@@ -20,35 +39,48 @@ logger = get_logger("webhook.platega")
 router = APIRouter()
 
 
+# Маппинг статусов Platega → внутренние ("paid"/"failed"/"expired"/"refunded"),
+# которые понимает PaymentService.process_webhook_payment.
+_STATUS_MAP: dict[str, str] = {
+    "confirmed": "paid",
+    "canceled": "failed",
+    "cancelled": "failed",
+    "chargebacked": "refunded",
+    "pending": "pending",
+}
+
+
 @router.post("/platega")
 async def platega_webhook(
     request: Request,
     session: DBSession,
     northline: NorthLineClientDep,
-    x_signature: str | None = Header(default=None, alias="X-Signature"),
+    x_merchant_id: str | None = Header(default=None, alias="X-MerchantId"),
+    x_secret: str | None = Header(default=None, alias="X-Secret"),
 ) -> ORJSONResponse:
     body_bytes = await request.body()
     settings = get_settings()
     client = PlategaClient(
         api_key=settings.platega_api_key,
         shop_id=settings.platega_shop_id,
-        secret=settings.platega_secret,
+        secret=settings.platega_secret or settings.platega_api_key,
         base_url=settings.platega_api_url,
     )
 
-    if not client.verify_webhook_signature(body_bytes, x_signature):
+    if not client.verify_webhook_credentials(x_merchant_id, x_secret):
         await tech_log(
             session,
-            action="webhook_platega_invalid_signature",
+            action="webhook_platega_invalid_credentials",
             payload={
                 "body_preview": body_bytes[:512].decode("utf-8", errors="replace"),
-                "signature_present": bool(x_signature),
+                "merchant_id_present": bool(x_merchant_id),
+                "secret_present": bool(x_secret),
             },
             trace_id=get_trace_id(),
         )
         await session.commit()
         raise ForbiddenError(
-            "Invalid webhook signature", error_code="invalid_signature"
+            "Invalid webhook credentials", error_code="invalid_signature"
         )
 
     try:
@@ -63,16 +95,9 @@ async def platega_webhook(
         await session.commit()
         return ORJSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
 
-    # TODO: уточнить под реальное API Platega — имена полей в webhook payload.
-    external_id = (
-        payload.get("payment_id")
-        or payload.get("invoice_id")
-        or payload.get("id")
-        or payload.get("orderId")
-        or ""
-    )
-    status_value = str(payload.get("status") or "")
-    if not external_id or not status_value:
+    external_id = str(payload.get("id") or "")
+    raw_status = str(payload.get("status") or "")
+    if not external_id or not raw_status:
         await tech_log(
             session,
             action="webhook_platega_missing_fields",
@@ -84,18 +109,26 @@ async def platega_webhook(
             {"ok": False, "error": "missing_fields"}, status_code=400
         )
 
+    # Маппим статусы Platega (UPPERCASE) → формат, который понимает PaymentService.
+    normalized_status = _STATUS_MAP.get(raw_status.lower(), raw_status.lower())
+
     await tech_log(
         session,
         action="webhook_platega_received",
-        payload={"external_id": external_id, "status": status_value},
+        payload={
+            "external_id": external_id,
+            "status_raw": raw_status,
+            "status": normalized_status,
+            "amount": payload.get("amount"),
+        },
         trace_id=get_trace_id(),
     )
 
     service = PaymentService(session)
     result = await service.process_webhook_payment(
         provider="platega",
-        external_id=str(external_id),
-        status_value=status_value,
+        external_id=external_id,
+        status_value=normalized_status,
         raw_meta=payload,
         trace_id=get_trace_id(),
         northline_client=northline,

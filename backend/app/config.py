@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     platega_api_key: str = ""
     platega_shop_id: str = ""
     platega_secret: str = ""
-    platega_api_url: str = "https://api.platega.io"
+    platega_api_url: str = "https://app.platega.io"
 
     # CryptoBot
     cryptobot_api_token: str = ""

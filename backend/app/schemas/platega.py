@@ -1,9 +1,18 @@
 """Pydantic schemas for Platega payment provider.
 
-NOTE: Platega public docs are scarce — schemas reflect a *generalized* JSON shape
-typical for Russian payment gateways: orderId / amount / currency / method /
-successUrl / callbackUrl / sign. Adjust field names once the real API spec is
-confirmed (TODO: уточнить под реальное API Platega).
+API spec source: https://docs.platega.io/
+
+Платёжные методы передаются как INTEGER:
+    2  — СБП (QR-код)
+    3  — ЕРИП
+    11 — Карточный эквайринг
+    12 — Международная оплата
+    13 — Криптовалюта
+
+Сумма в API передаётся в РУБЛЯХ (float), не в копейках.
+
+В ответе и webhook поле статуса — строка верхним регистром:
+    PENDING | CONFIRMED | CANCELED | CHARGEBACKED
 """
 
 from __future__ import annotations
@@ -13,47 +22,63 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-PlategaMethod = Literal["sbp", "crypto"]
+# Семантические алиасы, которые используются в payment_service для маршрутизации.
+# Маппятся в integer Platega-кода в platega_client.
+PlategaMethod = Literal["sbp", "crypto", "card", "erip", "international"]
+
+
+# Числовые коды Platega для поля paymentMethod в /transaction/process.
+PLATEGA_METHOD_CODES: dict[str, int] = {
+    "sbp": 2,
+    "erip": 3,
+    "card": 11,
+    "international": 12,
+    "crypto": 13,
+}
+
+
+class PlategaPaymentDetails(BaseModel):
+    """Сумма + валюта для запроса /transaction/process."""
+
+    amount: float = Field(..., gt=0)
+    currency: str = Field(default="RUB", max_length=8)
 
 
 class PlategaInvoiceRequest(BaseModel):
-    """Request body sent to Platega create-invoice endpoint."""
+    """Запрос к POST /transaction/process."""
 
-    order_id: str = Field(..., max_length=128)
-    amount: int = Field(..., gt=0, description="Amount in kopecks (integer).")
-    currency: str = Field(default="RUB", max_length=8)
-    method: PlategaMethod
-    description: str | None = Field(default=None, max_length=512)
-    success_url: str | None = None
-    callback_url: str
-    shop_id: str
-    # Signature is computed and added by the client just before sending.
-    sign: str | None = None
+    paymentMethod: int  # noqa: N815 — точный JSON-ключ Platega
+    paymentDetails: PlategaPaymentDetails  # noqa: N815
+    description: str = Field(..., max_length=512)
+    return_: str | None = Field(default=None, alias="return")  # успешный возврат
+    failedUrl: str | None = None  # noqa: N815
+    payload: str | None = Field(default=None, max_length=512)
+
+    model_config = {"populate_by_name": True}
 
 
 class PlategaInvoiceResponse(BaseModel):
-    """Response returned by Platega after successful invoice creation."""
+    """Ответ на POST /transaction/process."""
 
-    external_id: str = Field(..., description="Provider-side payment id.")
-    payment_url: str = Field(..., description="URL the user is redirected to for payment.")
-    status: str = Field(default="pending")
+    transactionId: str  # noqa: N815
+    redirect: str | None = None
+    status: str = "PENDING"
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlategaWebhookPayload(BaseModel):
-    """Generalized webhook payload from Platega."""
+    """Payload входящего callback'а от Platega."""
 
-    order_id: str | None = None
-    external_id: str | None = None
-    status: str
-    amount: int | None = None
-    currency: str | None = None
-    method: str | None = None
-    raw: dict[str, Any] = Field(default_factory=dict)
+    id: str
+    amount: float
+    currency: str = "RUB"
+    status: str  # CONFIRMED | CANCELED | CHARGEBACKED
+    paymentMethod: int | None = None  # noqa: N815
+    payload: str | None = None
 
 
 class InvoiceResult(BaseModel):
-    """Common provider-agnostic invoice creation result."""
+    """Provider-agnostic результат создания инвойса."""
 
     external_id: str
     payment_url: str

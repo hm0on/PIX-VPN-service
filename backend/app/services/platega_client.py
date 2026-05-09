@@ -1,18 +1,20 @@
 """Platega payment provider HTTP client.
 
-NOTE: Platega public docs are scarce. The implementation below uses a
-*generalized* request/response shape typical for Russian payment gateways
-(orderId / amount / currency / method / callbackUrl / successUrl / sign).
+Spec: https://docs.platega.io/
 
-TODO: уточнить под реальное API Platega — в первую очередь:
-  - точный путь create-invoice (/create_invoice vs /api/v1/invoices vs ...);
-  - точные имена полей (snake_case vs camelCase);
-  - набор полей, входящих в HMAC-подпись, и порядок их сортировки.
+Ключевое:
+- Base URL: https://app.platega.io
+- Авторизация: заголовки X-MerchantId + X-Secret
+- Создание транзакции: POST /transaction/process
+- Сумма в рублях (float), НЕ в копейках
+- Метод оплаты — целое число (2 = СБП)
+- Webhook: те же два заголовка X-MerchantId/X-Secret;
+  отдельной HMAC-подписи нет, проверяем равенство этих заголовков нашим credentials.
+- Статусы: PENDING | CONFIRMED | CANCELED | CHARGEBACKED
 """
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 from typing import Any
 
@@ -26,6 +28,7 @@ from tenacity import (
 
 from app.core.logging import get_logger
 from app.schemas.platega import (
+    PLATEGA_METHOD_CODES,
     InvoiceResult,
     PlategaInvoiceResponse,
     PlategaMethod,
@@ -55,76 +58,78 @@ class PlategaClient:
     Parameters
     ----------
     api_key:
-        API key issued by Platega (sent in `Authorization` header — TODO confirm).
+        X-Secret из личного кабинета Platega → Настройки.
     shop_id:
-        Shop / merchant identifier.
+        X-MerchantId (UUID) из личного кабинета Platega → Настройки.
     secret:
-        HMAC-SHA256 secret for signing requests and verifying webhooks.
+        Совпадает с api_key. Оставлено для обратной совместимости со старым
+        конструктором; webhook авторизуется тем же X-Secret.
     base_url:
-        Base API URL (default https://api.platega.io).
+        Базовый URL API (по умолчанию https://app.platega.io).
     timeout:
-        Request timeout in seconds.
+        Таймаут запроса в секундах.
     """
 
     def __init__(
         self,
         api_key: str,
         shop_id: str,
-        secret: str,
-        base_url: str = "https://api.platega.io",
+        secret: str | None = None,
+        base_url: str = "https://app.platega.io",
         timeout: float = 15.0,
     ) -> None:
         self.api_key = api_key
         self.shop_id = shop_id
-        self.secret = secret
+        # X-Secret = api_key. Поле secret оставлено только для совместимости
+        # со старой сигнатурой, реально не используется в подписи.
+        self.secret = secret or api_key
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
     # ------------------------------------------------------------------
-    # Signing helpers
+    # Auth helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _canonical_string(payload: dict[str, Any]) -> str:
-        """Build a canonical string for signing.
+    def _auth_headers(self) -> dict[str, str]:
+        return {
+            "X-MerchantId": self.shop_id,
+            "X-Secret": self.api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
 
-        Convention: sort keys alphabetically, join `key=value` pairs with `&`,
-        skip None and the `sign` field itself. This is a *generic* approach —
-        TODO: align with real Platega spec.
+    def verify_webhook_credentials(
+        self,
+        merchant_id_header: str | None,
+        secret_header: str | None,
+    ) -> bool:
+        """Проверка авторизации callback'а.
+
+        Platega не использует HMAC-подпись — приходящие заголовки
+        X-MerchantId / X-Secret должны буквально совпадать с нашими.
         """
-        parts: list[str] = []
-        for key in sorted(payload.keys()):
-            if key == "sign":
-                continue
-            value = payload[key]
-            if value is None:
-                continue
-            parts.append(f"{key}={value}")
-        return "&".join(parts)
-
-    def _sign_payload(self, payload: dict[str, Any]) -> str:
-        canonical = self._canonical_string(payload)
-        return hmac.new(
-            self.secret.encode("utf-8"),
-            canonical.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-
-    def verify_webhook_signature(self, body_bytes: bytes, signature_header: str | None) -> bool:
-        """Verify HMAC-SHA256 signature of incoming webhook body."""
-        if not signature_header or not self.secret:
+        if not merchant_id_header or not secret_header:
             return False
-        expected = hmac.new(
-            self.secret.encode("utf-8"),
-            body_bytes,
-            hashlib.sha256,
-        ).hexdigest()
-        # Constant-time comparison.
-        return hmac.compare_digest(expected, signature_header.strip().lower())
+        ok_merchant = hmac.compare_digest(
+            merchant_id_header.strip(), self.shop_id.strip()
+        )
+        ok_secret = hmac.compare_digest(
+            secret_header.strip(), self.api_key.strip()
+        )
+        return ok_merchant and ok_secret
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _kopecks_to_rubles(amount_kopecks: int) -> float:
+        """Целые копейки → рубли с двумя знаками после запятой.
+
+        Возвращаем float, т.к. OpenAPI схема Platega объявляет number/float.
+        Точность копеек сохраняется (round до 2 знаков).
+        """
+        return round(amount_kopecks / 100, 2)
 
     async def create_invoice(
         self,
@@ -134,41 +139,42 @@ class PlategaClient:
         currency: str = "RUB",
         payment_method: PlategaMethod,
         description: str | None,
-        callback_url: str,
+        callback_url: str,  # сохранён в сигнатуре для совместимости
         success_url: str | None = None,
     ) -> InvoiceResult:
-        """Create a new invoice and return the URL the user must visit to pay.
+        """Создать транзакцию через POST /transaction/process.
 
-        Raises
-        ------
-        PlategaClientError
-            On 4xx (no retry).
-        PlategaServerError
-            On 5xx after exhausted retries.
+        ``callback_url`` Platega'й конфигурируется в личном кабинете → Настройки →
+        Callback URLs, в API его не передают. Параметр сохранён в сигнатуре,
+        чтобы не ломать payment_service.
         """
         if amount_kopecks <= 0:
             raise PlategaClientError("amount_kopecks must be positive")
 
-        # TODO: уточнить под реальное API Platega — формат может потребовать
-        # `amount` в рублях с двумя знаками после запятой, а не копейки.
-        body: dict[str, Any] = {
-            "orderId": order_id,
-            "shopId": self.shop_id,
-            "amount": amount_kopecks,
-            "currency": currency,
-            "method": payment_method,
-            "description": description,
-            "successUrl": success_url,
-            "callbackUrl": callback_url,
-        }
-        body["sign"] = self._sign_payload(body)
+        method_code = PLATEGA_METHOD_CODES.get(payment_method)
+        if method_code is None:
+            raise PlategaClientError(
+                f"Unsupported Platega payment method: {payment_method}"
+            )
 
-        url = f"{self.base_url}/create_invoice"  # TODO: confirm real path
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
+        body: dict[str, Any] = {
+            "paymentMethod": method_code,
+            "paymentDetails": {
+                "amount": self._kopecks_to_rubles(amount_kopecks),
+                "currency": currency,
+            },
+            "description": description or f"Order {order_id}",
+            "payload": order_id,
         }
+        if success_url:
+            body["return"] = success_url
+            body["failedUrl"] = success_url
+
+        # callback_url доступен только если хотим логировать; в API не уходит.
+        _ = callback_url
+
+        url = f"{self.base_url}/transaction/process"
+        headers = self._auth_headers()
 
         async def _do_request() -> httpx.Response:
             async with httpx.AsyncClient(timeout=self.timeout) as cli:
@@ -214,33 +220,47 @@ class PlategaClient:
         except ValueError as e:
             raise PlategaClientError(f"Invalid JSON response: {e}") from e
 
-        # TODO: уточнить структуру ответа. Ниже — обобщённое сопоставление полей.
-        external_id = (
-            data.get("payment_id")
-            or data.get("invoice_id")
-            or data.get("id")
-            or data.get("orderId")
-            or order_id
-        )
-        payment_url = (
-            data.get("payment_url")
-            or data.get("url")
-            or data.get("redirect_url")
-            or ""
-        )
+        # /transaction/process возвращает: transactionId, redirect, status, ...
+        # /v2/transaction/process возвращает: transactionId, url, status, ...
+        external_id = data.get("transactionId") or data.get("id")
+        payment_url = data.get("redirect") or data.get("url")
+        if not external_id:
+            raise PlategaClientError(
+                "Platega response did not contain transactionId"
+            )
         if not payment_url:
             raise PlategaClientError(
                 "Platega response did not contain a payment URL"
             )
 
         parsed = PlategaInvoiceResponse(
-            external_id=str(external_id),
-            payment_url=str(payment_url),
-            status=str(data.get("status") or "pending"),
+            transactionId=str(external_id),
+            redirect=str(payment_url),
+            status=str(data.get("status") or "PENDING"),
             raw=data,
         )
         return InvoiceResult(
-            external_id=parsed.external_id,
-            payment_url=parsed.payment_url,
+            external_id=parsed.transactionId,
+            payment_url=parsed.redirect or "",
             raw=parsed.raw,
         )
+
+    async def get_transaction_status(self, transaction_id: str) -> dict[str, Any]:
+        """GET /transaction/{id} — проверить статус транзакции.
+
+        Используется для ручной сверки или fallback'а при потере webhook'а.
+        """
+        url = f"{self.base_url}/transaction/{transaction_id}"
+        headers = self._auth_headers()
+        async with httpx.AsyncClient(timeout=self.timeout) as cli:
+            resp = await cli.get(url, headers=headers)
+        if resp.status_code == 404:
+            raise PlategaClientError(f"transaction {transaction_id} not found")
+        if resp.status_code >= 400:
+            raise PlategaClientError(
+                f"Platega {resp.status_code}: {resp.text[:256]}"
+            )
+        try:
+            return resp.json()
+        except ValueError as e:
+            raise PlategaClientError(f"Invalid JSON response: {e}") from e

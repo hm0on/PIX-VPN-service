@@ -203,22 +203,18 @@ async def test_topup_create_ok(
 # ---------------------------------------------------------------------------
 
 
-def _platega_signature(secret: str, body_bytes: bytes) -> str:
-    return hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
-
-
 def _cryptobot_signature(token: str, body_bytes: bytes) -> str:
     secret = hashlib.sha256(token.encode()).digest()
     return hmac.new(secret, body_bytes, hashlib.sha256).hexdigest()
 
 
 @pytest.mark.asyncio
-async def test_platega_webhook_bad_signature(client):  # noqa: ANN001
-    body = json.dumps({"orderId": "x", "status": "paid"}).encode()
+async def test_platega_webhook_bad_credentials(client):  # noqa: ANN001
+    body = json.dumps({"id": "x", "status": "CONFIRMED", "amount": 1}).encode()
     r = await client.post(
         "/webhook/platega",
         content=body,
-        headers={"X-Signature": "deadbeef"},
+        headers={"X-MerchantId": "wrong", "X-Secret": "wrong"},
     )
     assert r.status_code == 403
     assert r.json()["error"]["code"] == "invalid_signature"
@@ -243,8 +239,10 @@ async def test_platega_webhook_idempotent_topup(
     monkeypatch,
     patch_platega,
 ):
-    # Configure secret so we can sign the webhook body.
+    # Configure credentials to authorize the callback.
     settings = get_settings()
+    monkeypatch.setattr(settings, "platega_api_key", "test_secret")  # noqa: S105
+    monkeypatch.setattr(settings, "platega_shop_id", "test_merchant")  # noqa: S105
     monkeypatch.setattr(settings, "platega_secret", "test_secret")  # noqa: S105
     monkeypatch.setattr(settings, "cryptobot_api_token", "test_token")  # noqa: S105
 
@@ -265,17 +263,23 @@ async def test_platega_webhook_idempotent_topup(
     webhook_body = json.dumps(
         {
             "id": external_id,
-            "orderId": f"payment-{payment_id}",
-            "status": "paid",
-            "amount": 30000,
+            "amount": 300.0,
+            "currency": "RUB",
+            "status": "CONFIRMED",
+            "paymentMethod": 2,
+            "payload": f"payment-{payment_id}",
         }
     ).encode()
-    sig = _platega_signature("test_secret", webhook_body)
+    auth_h = {
+        "X-MerchantId": "test_merchant",
+        "X-Secret": "test_secret",
+        "Content-Type": "application/json",
+    }
 
     r1 = await client.post(
         "/webhook/platega",
         content=webhook_body,
-        headers={"X-Signature": sig, "Content-Type": "application/json"},
+        headers=auth_h,
     )
     assert r1.status_code == 200, r1.text
 
@@ -290,7 +294,7 @@ async def test_platega_webhook_idempotent_topup(
     r2 = await client.post(
         "/webhook/platega",
         content=webhook_body,
-        headers={"X-Signature": sig, "Content-Type": "application/json"},
+        headers=auth_h,
     )
     assert r2.status_code == 200
     assert r2.json()["result"]["ignored"] == "already_terminal"
@@ -304,14 +308,27 @@ async def test_platega_webhook_idempotent_topup(
 @pytest.mark.asyncio
 async def test_platega_webhook_unknown_payment(client, monkeypatch):  # noqa: ANN001
     settings = get_settings()
+    monkeypatch.setattr(settings, "platega_api_key", "test_secret")  # noqa: S105
+    monkeypatch.setattr(settings, "platega_shop_id", "test_merchant")  # noqa: S105
     monkeypatch.setattr(settings, "platega_secret", "test_secret")  # noqa: S105
 
-    body = json.dumps({"id": "nonexistent-99999", "status": "paid"}).encode()
-    sig = _platega_signature("test_secret", body)
+    body = json.dumps(
+        {
+            "id": "nonexistent-99999",
+            "amount": 100.0,
+            "currency": "RUB",
+            "status": "CONFIRMED",
+            "paymentMethod": 2,
+        }
+    ).encode()
     r = await client.post(
         "/webhook/platega",
         content=body,
-        headers={"X-Signature": sig, "Content-Type": "application/json"},
+        headers={
+            "X-MerchantId": "test_merchant",
+            "X-Secret": "test_secret",
+            "Content-Type": "application/json",
+        },
     )
     assert r.status_code == 200
     assert r.json()["result"]["ignored"] == "unknown_payment"
