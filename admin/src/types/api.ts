@@ -196,9 +196,19 @@ export interface SubscriptionDevice {
   user_agent?: string | null;
 }
 
+/**
+ * NorthLine subscription status — what the upstream provider thinks of this
+ * key, independent of our local ``status``. Surfaced in /info to let ops
+ * eyeball drift before reconcile-cron runs.
+ */
+export type ProviderSubStatus = 'active' | 'suspended' | 'expired';
+
 export interface SubscriptionInfo {
+  provider_status: ProviderSubStatus | null;
   traffic_bytes: number | null;
   traffic_quota_gb: number | null;
+  /** -1 from NorthLine ⇒ безлимит; surfaced as a boolean flag. */
+  unlimited_traffic: boolean;
   lte_traffic_bytes: number | null;
   devices_total: number | null;
   devices_used: number | null;
@@ -209,4 +219,31 @@ export interface SubscriptionInfo {
 
 export interface DeactivateRequest {
   reason: string;
+}
+
+export interface SubscriptionBrandingRequest {
+  custom_domain?: string | null;
+  service_name?: string | null;
+  service_description?: string | null;
+  support_url?: string | null;
+}
+
+export type SubReconcileAction =
+  | 'no_change'
+  | 'status_flipped'
+  | 'expires_extended'
+  | 'expires_shrink_warned'
+  | 'provider_unknown_key'
+  | 'skipped_test'
+  | 'api_error';
+
+export interface SubReconcileResponse {
+  subscription_id: number;
+  action: SubReconcileAction;
+  old_status: string;
+  new_status: string;
+  old_expires_at: string | null;
+  new_expires_at: string | null;
+  provider_status: ProviderSubStatus | null;
+  message: string | null;
 }

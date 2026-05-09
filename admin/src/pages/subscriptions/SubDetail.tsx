@@ -1,16 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowLeft,
   Ban,
   Copy,
+  Eraser,
   ExternalLink,
+  Infinity as InfinityIcon,
   Loader2,
+  RefreshCw,
   Trash2,
 } from 'lucide-react';
+import { z } from 'zod';
 
 import { getErrorMessage } from '@/api/client';
 import { subscriptionsApi } from '@/api/endpoints/subscriptions';
@@ -31,6 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
@@ -42,7 +49,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 import { formatBytes, formatDateTime, truncate } from '@/utils/format';
+import type { ProviderSubStatus, SubReconcileAction } from '@/types/api';
 
 interface FieldProps {
   label: string;
@@ -56,6 +65,185 @@ function Field({ label, children }: FieldProps) {
       </div>
       <div className="text-sm">{children}</div>
     </div>
+  );
+}
+
+function providerStatusBadge(status: ProviderSubStatus | null) {
+  if (status == null) return null;
+  const variant =
+    status === 'active'
+      ? 'success'
+      : status === 'suspended'
+        ? 'warning'
+        : 'destructive';
+  return (
+    <Badge variant={variant} title="Статус по данным NorthLine">
+      provider · {status}
+    </Badge>
+  );
+}
+
+const RECONCILE_LABEL: Record<SubReconcileAction, string> = {
+  no_change: 'Изменений нет',
+  status_flipped: 'Статус обновлён',
+  expires_extended: 'Срок продлён',
+  expires_shrink_warned: 'Срок сокращён, проверьте',
+  provider_unknown_key: 'Провайдер не знает ключ',
+  skipped_test: 'Пропущено (тест)',
+  api_error: 'Ошибка API',
+};
+
+const brandingSchema = z.object({
+  custom_domain: z.string().max(253).optional(),
+  service_name: z.string().max(128).optional(),
+  service_description: z.string().max(512).optional(),
+  support_url: z
+    .string()
+    .max(512)
+    .optional()
+    .refine(
+      (v) => !v || /^https?:\/\//i.test(v),
+      'URL должен начинаться с http:// или https://'
+    ),
+});
+
+type BrandingFormValues = z.infer<typeof brandingSchema>;
+
+interface BrandingSectionProps {
+  id: number;
+  initial: BrandingFormValues;
+}
+
+function BrandingSection({ id, initial }: BrandingSectionProps) {
+  const queryClient = useQueryClient();
+  const form = useForm<BrandingFormValues>({
+    resolver: zodResolver(brandingSchema),
+    defaultValues: initial,
+  });
+
+  // Re-seed when ``initial`` shifts (e.g. after a manual refresh of /info raw).
+  useEffect(() => {
+    form.reset(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial.custom_domain, initial.service_name, initial.service_description, initial.support_url]);
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: BrandingFormValues) =>
+      subscriptionsApi.updateBranding(id, {
+        custom_domain: payload.custom_domain?.trim() || null,
+        service_name: payload.service_name?.trim() || null,
+        service_description: payload.service_description?.trim() || null,
+        support_url: payload.support_url?.trim() || null,
+      }),
+    onSuccess: () => {
+      toast.success('Брендинг подписки сохранён');
+      void queryClient.invalidateQueries({ queryKey: ['sub', id, 'info'] });
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: () =>
+      subscriptionsApi.updateBranding(id, {
+        custom_domain: null,
+        service_name: null,
+        service_description: null,
+        support_url: null,
+      }),
+    onSuccess: () => {
+      toast.success('Переопределение очищено');
+      form.reset({
+        custom_domain: '',
+        service_name: '',
+        service_description: '',
+        support_url: '',
+      });
+      void queryClient.invalidateQueries({ queryKey: ['sub', id, 'info'] });
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Брендинг подписки</CardTitle>
+        <CardDescription>
+          Переопределение глобальных настроек реселлера для этого ключа.
+          Пустые поля → значение наследуется от профиля.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form
+          onSubmit={form.handleSubmit((v) => saveMutation.mutate(v))}
+          className="space-y-4"
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor={`brand-domain-${id}`}>Custom domain</Label>
+              <Input
+                id={`brand-domain-${id}`}
+                placeholder="vpn.example.com"
+                {...form.register('custom_domain')}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`brand-name-${id}`}>Service name</Label>
+              <Input
+                id={`brand-name-${id}`}
+                placeholder="PIX VPN"
+                {...form.register('service_name')}
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor={`brand-desc-${id}`}>Service description</Label>
+              <Textarea
+                id={`brand-desc-${id}`}
+                rows={2}
+                {...form.register('service_description')}
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor={`brand-support-${id}`}>Support URL</Label>
+              <Input
+                id={`brand-support-${id}`}
+                placeholder="https://t.me/your_support"
+                {...form.register('support_url')}
+              />
+              {form.formState.errors.support_url && (
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.support_url.message}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => clearMutation.mutate()}
+              disabled={clearMutation.isPending || saveMutation.isPending}
+            >
+              {clearMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Eraser className="h-4 w-4" />
+              )}
+              Очистить
+            </Button>
+            <Button
+              type="submit"
+              disabled={saveMutation.isPending || clearMutation.isPending}
+            >
+              {saveMutation.isPending && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+              Сохранить
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -109,6 +297,22 @@ export default function SubDetail() {
     onError: (err) => toast.error(getErrorMessage(err)),
   });
 
+  const reconcileMutation = useMutation({
+    mutationFn: () => subscriptionsApi.reconcile(id),
+    onSuccess: (data) => {
+      const label = RECONCILE_LABEL[data.action] ?? data.action;
+      const detail = data.message ? ` — ${data.message}` : '';
+      if (data.action === 'api_error' || data.action === 'provider_unknown_key') {
+        toast.error(`${label}${detail}`);
+      } else {
+        toast.success(`${label}${detail}`);
+      }
+      void queryClient.invalidateQueries({ queryKey: ['sub', id] });
+      void queryClient.invalidateQueries({ queryKey: ['sub', id, 'info'] });
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
   if (!Number.isFinite(id)) {
     return <p className="text-sm text-destructive">Некорректный ID подписки.</p>;
   }
@@ -123,6 +327,43 @@ export default function SubDetail() {
     } catch {
       toast.error('Не удалось скопировать');
     }
+  };
+
+  // Derive traffic-progress as a 0..100 value when both sides are available.
+  // Unlimited / missing data both fall back to ``null`` so the bar simply
+  // doesn't render, instead of pretending the key is at 0%.
+  let trafficPct: number | null = null;
+  if (info && !info.unlimited_traffic && info.traffic_quota_gb && info.traffic_quota_gb > 0) {
+    const usedGb = (info.traffic_bytes ?? 0) / 1024 ** 3;
+    trafficPct = Math.min(100, Math.max(0, (usedGb / info.traffic_quota_gb) * 100));
+  }
+
+  // Pull current branding values out of /info.raw — backend includes them
+  // there since they live on NorthLine's key object. Unknown shape, so we
+  // narrow defensively.
+  const rawBranding =
+    info?.raw && typeof info.raw === 'object'
+      ? ((info.raw as Record<string, unknown>).branding as
+          | Record<string, unknown>
+          | undefined)
+      : undefined;
+  const initialBranding = {
+    custom_domain:
+      typeof rawBranding?.custom_domain === 'string'
+        ? (rawBranding.custom_domain as string)
+        : '',
+    service_name:
+      typeof rawBranding?.service_name === 'string'
+        ? (rawBranding.service_name as string)
+        : '',
+    service_description:
+      typeof rawBranding?.service_description === 'string'
+        ? (rawBranding.service_description as string)
+        : '',
+    support_url:
+      typeof rawBranding?.support_url === 'string'
+        ? (rawBranding.support_url as string)
+        : '',
   };
 
   return (
@@ -145,9 +386,25 @@ export default function SubDetail() {
                     : 'muted'
             }
           >
-            {sub.status}
+            local · {sub.status}
           </Badge>
         )}
+        {info && providerStatusBadge(info.provider_status)}
+        <div className="ml-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => reconcileMutation.mutate()}
+            disabled={reconcileMutation.isPending || !Number.isFinite(id)}
+          >
+            {reconcileMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Reconcile
+          </Button>
+        </div>
       </div>
 
       {subQuery.isLoading ? (
@@ -238,10 +495,10 @@ export default function SubDetail() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Статистика трафика</CardTitle>
+              <CardTitle>Трафик и устройства</CardTitle>
               <CardDescription>NorthLine.get_key</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-6">
               {infoQuery.isLoading ? (
                 <Skeleton className="h-24 w-full" />
               ) : isInfoUpstreamDown || infoQuery.isError ? (
@@ -249,92 +506,117 @@ export default function SubDetail() {
                   Статистика недоступна
                 </p>
               ) : info ? (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <Field label="Трафик">
-                    {info.traffic_bytes != null
-                      ? formatBytes(info.traffic_bytes)
-                      : 'Статистика недоступна'}
-                  </Field>
-                  <Field label="Квота, ГБ">
-                    {info.traffic_quota_gb != null
-                      ? `${info.traffic_quota_gb} ГБ`
-                      : '—'}
-                  </Field>
-                  <Field label="LTE-трафик">
-                    {info.lte_traffic_bytes != null
-                      ? formatBytes(info.lte_traffic_bytes)
-                      : 'Статистика недоступна'}
-                  </Field>
-                  <Field label="Истекает (по NL)">
-                    {formatDateTime(info.expires_at)}
-                  </Field>
-                </div>
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <Field label="Трафик">
+                      <div className="flex items-center gap-2">
+                        <span>
+                          {info.traffic_bytes != null
+                            ? formatBytes(info.traffic_bytes)
+                            : '—'}
+                        </span>
+                        {info.unlimited_traffic && (
+                          <Badge variant="info">
+                            <InfinityIcon className="mr-1 h-3 w-3" />
+                            безлимит
+                          </Badge>
+                        )}
+                      </div>
+                    </Field>
+                    <Field label="Квота, ГБ">
+                      {info.unlimited_traffic
+                        ? '∞'
+                        : info.traffic_quota_gb != null
+                          ? `${info.traffic_quota_gb} ГБ`
+                          : '—'}
+                    </Field>
+                    <Field label="LTE-трафик">
+                      {info.lte_traffic_bytes != null
+                        ? formatBytes(info.lte_traffic_bytes)
+                        : '—'}
+                    </Field>
+                    <Field label="Истекает (по NL)">
+                      {formatDateTime(info.expires_at)}
+                    </Field>
+                    <Field label="Устройств">
+                      {info.devices_used != null && info.devices_total != null
+                        ? `${info.devices_used} / ${info.devices_total}`
+                        : '—'}
+                    </Field>
+                  </div>
+
+                  {trafficPct != null && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Использовано</span>
+                        <span>{trafficPct.toFixed(1)} %</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={cn(
+                            'h-full rounded-full transition-all',
+                            trafficPct >= 90
+                              ? 'bg-destructive'
+                              : trafficPct >= 70
+                                ? 'bg-warning'
+                                : 'bg-primary'
+                          )}
+                          style={{ width: `${trafficPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {(info.devices ?? []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {info.devices_used != null && info.devices_used > 0
+                        ? `Активно: ${info.devices_used}. Поставщик пока не возвращает их перечень — посмотрите в панели NorthLine.`
+                        : 'Нет подключённых устройств.'}
+                    </p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>ID</TableHead>
+                          <TableHead>Имя</TableHead>
+                          <TableHead>Последний онлайн</TableHead>
+                          <TableHead>IP</TableHead>
+                          <TableHead className="w-16 text-right">Действия</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(info.devices ?? []).map((d) => (
+                          <TableRow key={d.id}>
+                            <TableCell className="font-mono text-xs">
+                              {truncate(d.id, 24)}
+                            </TableCell>
+                            <TableCell>{d.name ?? '—'}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {formatDateTime(d.last_seen_at)}
+                            </TableCell>
+                            <TableCell className="text-xs">{d.ip ?? '—'}</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setConfirmDevice(d.id)}
+                                disabled={removeDeviceMutation.isPending}
+                                aria-label="Удалить устройство"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
               ) : null}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Устройства</CardTitle>
-              <CardDescription>
-                {info?.devices_used != null && info?.devices_total != null
-                  ? `Подключено: ${info.devices_used} из ${info.devices_total}`
-                  : 'Активные подключения'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {infoQuery.isLoading ? (
-                <Skeleton className="h-24 w-full" />
-              ) : isInfoUpstreamDown || infoQuery.isError ? (
-                <p className="text-sm text-muted-foreground">
-                  Список устройств недоступен
-                </p>
-              ) : (info?.devices ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  {info?.devices_used != null && info.devices_used > 0
-                    ? `Активно: ${info.devices_used}. Поставщик пока не возвращает их перечень — посмотрите в панели NorthLine.`
-                    : 'Нет подключённых устройств.'}
-                </p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>Имя</TableHead>
-                      <TableHead>Последний онлайн</TableHead>
-                      <TableHead>IP</TableHead>
-                      <TableHead className="w-16 text-right">Действия</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(info?.devices ?? []).map((d) => (
-                      <TableRow key={d.id}>
-                        <TableCell className="font-mono text-xs">
-                          {truncate(d.id, 24)}
-                        </TableCell>
-                        <TableCell>{d.name ?? '—'}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {formatDateTime(d.last_seen_at)}
-                        </TableCell>
-                        <TableCell className="text-xs">{d.ip ?? '—'}</TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setConfirmDevice(d.id)}
-                            disabled={removeDeviceMutation.isPending}
-                            aria-label="Удалить устройство"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          <BrandingSection id={id} initial={initialBranding} />
         </>
       )}
 

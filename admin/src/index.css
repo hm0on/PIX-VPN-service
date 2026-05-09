@@ -2,50 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * PIX VPN admin palette.
+ *
+ * Primary is a warm violet-blue (~indigo 540) that reads as both modern and
+ * trustworthy on a neutral slate canvas. Accent picks up the same hue with a
+ * lighter brand wash. Status colours are kept distinct from primary so that
+ * "active" / "warning" / "danger" badges never collide with brand surfaces.
+ */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 220 24% 97%;
+    --foreground: 222 32% 12%;
+
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 32% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
+    --popover-foreground: 222 32% 12%;
+
+    --primary: 246 70% 54%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    --secondary: 220 22% 92%;
+    --secondary-foreground: 222 32% 18%;
+
+    --muted: 220 18% 94%;
+    --muted-foreground: 222 14% 42%;
+
+    --accent: 246 80% 96%;
+    --accent-foreground: 246 70% 32%;
+
+    --destructive: 0 76% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 64% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 28 50% 12%;
+
+    --border: 220 16% 86%;
+    --input: 220 16% 86%;
+    --ring: 246 70% 54%;
+    --radius: 0.6rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --background: 224 30% 8%;
+    --foreground: 210 30% 96%;
+
+    --card: 224 28% 11%;
+    --card-foreground: 210 30% 96%;
+    --popover: 224 28% 11%;
+    --popover-foreground: 210 30% 96%;
+
+    --primary: 246 86% 70%;
+    --primary-foreground: 224 30% 10%;
+    --secondary: 222 22% 18%;
+    --secondary-foreground: 210 30% 96%;
+
+    --muted: 222 20% 16%;
+    --muted-foreground: 218 14% 65%;
+
+    --accent: 246 36% 22%;
+    --accent-foreground: 246 80% 92%;
+
+    --destructive: 0 70% 54%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --success: 152 56% 48%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 90% 56%;
+    --warning-foreground: 28 50% 10%;
+
+    --border: 222 20% 20%;
+    --input: 222 20% 20%;
+    --ring: 246 86% 70%;
   }
 }
 

@@ -2,7 +2,9 @@ import { api } from '@/api/client';
 import type {
   DeactivateRequest,
   Page,
+  SubReconcileResponse,
   Subscription,
+  SubscriptionBrandingRequest,
   SubscriptionInfo,
   SubscriptionListParams,
 } from '@/types/api';
@@ -22,4 +24,20 @@ export const subscriptionsApi = {
     ),
   removeDevice: (id: number, deviceId: string) =>
     api.delete<{ ok: boolean }>(`/admin/subscriptions/${id}/devices/${deviceId}`),
+  /**
+   * Per-subscription branding override. Pass ``null`` for a field to clear
+   * it upstream (NorthLine PATCH /keys/{id}/branding semantics).
+   */
+  updateBranding: (id: number, payload: SubscriptionBrandingRequest) =>
+    api.put<{ ok: true }, SubscriptionBrandingRequest>(
+      `/admin/subscriptions/${id}/branding`,
+      payload
+    ),
+  /**
+   * Force-run the reconcile job on a single subscription. The response
+   * describes what changed (status_flipped / expires_extended / no_change …)
+   * so the UI can toast a meaningful summary.
+   */
+  reconcile: (id: number) =>
+    api.post<SubReconcileResponse>(`/admin/subscriptions/${id}/reconcile`),
 };

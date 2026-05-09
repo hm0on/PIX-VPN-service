@@ -18,6 +18,7 @@ import {
   YAxis,
 } from 'recharts';
 
+import { northlineApi } from '@/api/endpoints/northline';
 import { statsApi } from '@/api/endpoints/stats';
 import {
   Card,
@@ -146,6 +147,26 @@ export default function Dashboard() {
     refetchInterval: config.dashboardPollMs,
   });
 
+  // NorthLine reseller balance — surfaced as a KPI on the dashboard so ops
+  // can spot a near-empty balance before it bites the next purchase.
+  const resellerQuery = useQuery({
+    queryKey: ['dashboard', 'reseller'],
+    queryFn: northlineApi.profile,
+    refetchInterval: 30_000,
+  });
+
+  const resellerBalanceText = resellerQuery.data
+    ? new Intl.NumberFormat('ru-RU', {
+        style: 'currency',
+        currency: 'RUB',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(resellerQuery.data.balance_rub)
+    : '—';
+  const resellerSubtitle = resellerQuery.dataUpdatedAt
+    ? `Обновлено ${formatDateTime(new Date(resellerQuery.dataUpdatedAt).toISOString())}`
+    : undefined;
+
   const kpi = kpiQuery.data;
   const revenueData = (revenueQuery.data ?? []).map((p) => ({
     date: p.date,
@@ -164,26 +185,25 @@ export default function Dashboard() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          title="Пользователей всего"
-          value={formatNumber(kpi?.users_total)}
-          subtitle={
-            kpi
-              ? `+${formatNumber(kpi.users_delta_24h)} за 24ч`
-              : undefined
-          }
-          icon={Users}
-          loading={kpiQuery.isLoading}
+          title="Баланс NorthLine"
+          value={resellerBalanceText}
+          subtitle={resellerSubtitle}
+          icon={Wallet}
+          loading={resellerQuery.isLoading}
         />
         <KpiCard
           title="Активных подписок"
           value={formatNumber(kpi?.active_subscriptions)}
+          subtitle={
+            kpi ? `Пользователей: ${formatNumber(kpi.users_total)}` : undefined
+          }
           icon={Activity}
           loading={kpiQuery.isLoading}
         />
         <KpiCard
           title="Прибыль за месяц"
           value={formatRub(kpi?.revenue_month_kop)}
-          icon={Wallet}
+          icon={Users}
           loading={kpiQuery.isLoading}
         />
         <KpiCard

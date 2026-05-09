@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { LogOut, RefreshCw, Sun, Moon, UserRound } from 'lucide-react';
+import { LogOut, Menu, RefreshCw, Sun, Moon, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ export function Header() {
   const logout = useAuthStore((s) => s.logout);
   const theme = useUIStore((s) => s.theme);
   const toggleTheme = useUIStore((s) => s.toggleTheme);
+  const toggleMobileSidebar = useUIStore((s) => s.toggleMobileSidebar);
 
   const handleLogout = () => {
     logout();
@@ -27,8 +28,19 @@ export function Header() {
   };
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-6">
-      <div className="text-sm text-muted-foreground">Админ-панель</div>
+    <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-4 md:px-6">
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleMobileSidebar}
+          aria-label="Открыть меню"
+          className="md:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+        <div className="text-sm text-muted-foreground">Админ-панель</div>
+      </div>
       <div className="flex items-center gap-2">
         <Button
           variant="ghost"
@@ -52,14 +64,14 @@ export function Header() {
             <Moon className="h-4 w-4" />
           )}
         </Button>
-        <Separator orientation="vertical" className="h-6" />
-        <div className="flex items-center gap-2 text-sm">
+        <Separator orientation="vertical" className="hidden h-6 sm:block" />
+        <div className="hidden items-center gap-2 text-sm sm:flex">
           <UserRound className="h-4 w-4 text-muted-foreground" />
           <span className="text-foreground">{label ?? 'admin'}</span>
         </div>
         <Button variant="outline" size="sm" onClick={handleLogout}>
           <LogOut className="h-4 w-4" />
-          Выход
+          <span className="hidden sm:inline">Выход</span>
         </Button>
       </div>
     </header>

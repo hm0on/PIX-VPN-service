@@ -71,6 +71,8 @@ export const api = {
   get: <T>(url: string, params?: Record<string, unknown>) =>
     apiClient.get<T>(url, { params }).then((r) => r.data),
   post: <T, B = unknown>(url: string, body?: B) => apiClient.post<T>(url, body).then((r) => r.data),
+  put: <T, B = unknown>(url: string, body?: B) =>
+    apiClient.put<T>(url, body).then((r) => r.data),
   patch: <T, B = unknown>(url: string, body?: B) =>
     apiClient.patch<T>(url, body).then((r) => r.data),
   delete: <T>(url: string) => apiClient.delete<T>(url).then((r) => r.data),

@@ -17,6 +17,11 @@ import BroadcastEditor from '@/pages/broadcasts/BroadcastEditor';
 import BotTexts from '@/pages/texts/BotTexts';
 import EventLogs from '@/pages/logs/EventLogs';
 import TechLogs from '@/pages/logs/TechLogs';
+import NorthlineProfile from '@/pages/northline/NorthlineProfile';
+import NorthlinePrices from '@/pages/northline/NorthlinePrices';
+import NorthlineLte from '@/pages/northline/NorthlineLte';
+import NorthlineBranding from '@/pages/northline/NorthlineBranding';
+import PaymentsList from '@/pages/payments/PaymentsList';
 import { useAuthStore } from '@/stores/authStore';
 
 function RootRedirect() {
@@ -44,6 +49,14 @@ export default function App() {
 
         <Route path="/subscriptions" element={<SubsList />} />
         <Route path="/subscriptions/:id" element={<SubDetail />} />
+
+        <Route path="/payments" element={<PaymentsList />} />
+
+        <Route path="/northline" element={<Navigate to="/northline/profile" replace />} />
+        <Route path="/northline/profile" element={<NorthlineProfile />} />
+        <Route path="/northline/prices" element={<NorthlinePrices />} />
+        <Route path="/northline/lte" element={<NorthlineLte />} />
+        <Route path="/northline/branding" element={<NorthlineBranding />} />
 
         <Route path="/tariffs" element={<Tariffs />} />
         <Route path="/promos" element={<Promos />} />

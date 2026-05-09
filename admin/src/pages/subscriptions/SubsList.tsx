@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Clock, Search } from 'lucide-react';
 
 import { subscriptionsApi } from '@/api/endpoints/subscriptions';
 import { Badge } from '@/components/ui/badge';
@@ -24,9 +24,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { DatePicker } from '@/components/DatePicker';
 import { Pagination } from '@/components/Pagination';
 import { SortHeader } from '@/components/SortHeader';
 import { useDebounce } from '@/hooks/use-debounce';
+import { useUrlFilters } from '@/hooks/useUrlFilters';
 import { formatDateTime, truncate } from '@/utils/format';
 import type { SubscriptionListParams } from '@/types/api';
 
@@ -40,34 +42,90 @@ const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending' },
 ];
 
+const TRIAL_OPTIONS = [
+  { value: '', label: 'Все' },
+  { value: '1', label: 'Только триал' },
+  { value: '0', label: 'Без триала' },
+];
+
+interface SubsFilters {
+  status: string;
+  tariff_id: string;
+  is_free_trial: string;
+  q: string;
+  expires_from: string;
+  expires_to: string;
+  page: number;
+  page_size: number;
+  sort: string;
+  [key: string]: string | number | boolean | undefined;
+}
+
+const DEFAULTS: SubsFilters = {
+  status: '',
+  tariff_id: '',
+  is_free_trial: '',
+  q: '',
+  expires_from: '',
+  expires_to: '',
+  page: 1,
+  page_size: PER_PAGE,
+  sort: 'created_at:desc',
+};
+
+const EXPIRE_SOON_DAYS = 3;
+
+function isExpiringSoon(expiresAt: string | null, status: string): boolean {
+  if (!expiresAt) return false;
+  if (status !== 'active') return false;
+  const ts = new Date(expiresAt).getTime();
+  if (Number.isNaN(ts)) return false;
+  const diffMs = ts - Date.now();
+  return diffMs > 0 && diffMs < EXPIRE_SOON_DAYS * 24 * 3600 * 1000;
+}
+
 export default function SubsList() {
   const navigate = useNavigate();
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [tariff, setTariff] = useState('');
-  const [trialOnly, setTrialOnly] = useState(false);
-  const [sort, setSort] = useState<string | undefined>('created_at:desc');
+  const { filters, setFilter, reset } = useUrlFilters({ defaults: DEFAULTS });
 
-  const debouncedSearch = useDebounce(search, 300);
-  const debouncedTariff = useDebounce(tariff, 300);
+  // Local mirrors for text inputs so we can debounce without bouncing through
+  // the URL on every keystroke.
+  const [qLocal, setQLocal] = useState(filters.q);
+  const [tariffLocal, setTariffLocal] = useState(filters.tariff_id);
+  const debouncedQ = useDebounce(qLocal, 300);
+  const debouncedTariff = useDebounce(tariffLocal, 300);
 
-  const params: SubscriptionListParams = useMemo(
-    () => ({
-      page,
-      per_page: PER_PAGE,
-      sort,
-      q: debouncedSearch.trim() || undefined,
-      status: status || undefined,
-      tariff: debouncedTariff.trim() || undefined,
-      is_free_trial: trialOnly || undefined,
-    }),
-    [page, sort, debouncedSearch, status, debouncedTariff, trialOnly]
-  );
+  useEffect(() => {
+    if (debouncedQ !== filters.q) setFilter('q', debouncedQ, { resetPage: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ]);
+  useEffect(() => {
+    if (debouncedTariff !== filters.tariff_id)
+      setFilter('tariff_id', debouncedTariff, { resetPage: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedTariff]);
+  useEffect(() => setQLocal(filters.q), [filters.q]);
+  useEffect(() => setTariffLocal(filters.tariff_id), [filters.tariff_id]);
+
+  const apiParams: SubscriptionListParams = useMemo(() => {
+    const out: SubscriptionListParams = {
+      page: filters.page,
+      per_page: filters.page_size,
+      sort: filters.sort,
+    };
+    if (filters.q) out.q = filters.q;
+    if (filters.status) out.status = filters.status;
+    if (filters.tariff_id) out.tariff = filters.tariff_id;
+    if (filters.is_free_trial === '1') out.is_free_trial = true;
+    else if (filters.is_free_trial === '0') out.is_free_trial = false;
+    if (filters.expires_from) out.expires_from = filters.expires_from;
+    if (filters.expires_to) out.expires_to = `${filters.expires_to}T23:59:59`;
+    return out;
+  }, [filters]);
 
   const query = useQuery({
-    queryKey: ['subs', params],
-    queryFn: () => subscriptionsApi.list(params),
+    queryKey: ['subs', apiParams],
+    queryFn: () => subscriptionsApi.list(apiParams),
     placeholderData: (prev) => prev,
   });
 
@@ -75,8 +133,7 @@ export default function SubsList() {
   const meta = query.data?.meta;
 
   const handleSort = (s: string) => {
-    setSort(s);
-    setPage(1);
+    setFilter('sort', s, { resetPage: true });
   };
 
   return (
@@ -89,30 +146,29 @@ export default function SubsList() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Список</CardTitle>
-          <CardDescription>Server-side pagination, 50 на страницу</CardDescription>
+        <CardHeader className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+          <div>
+            <CardTitle className="text-base">Список</CardTitle>
+            <CardDescription>Server-side pagination, 50 на страницу</CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" onClick={reset}>
+            Сбросить
+          </Button>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px_auto]">
-            <div className="relative">
+          <div className="grid gap-3 lg:grid-cols-4">
+            <div className="relative lg:col-span-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
+                value={qLocal}
+                onChange={(e) => setQLocal(e.target.value)}
                 placeholder="ID, ключ, юзер"
                 className="pl-9"
               />
             </div>
             <Select
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(1);
-              }}
+              value={filters.status}
+              onChange={(e) => setFilter('status', e.target.value, { resetPage: true })}
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -121,25 +177,34 @@ export default function SubsList() {
               ))}
             </Select>
             <Input
-              value={tariff}
-              onChange={(e) => {
-                setTariff(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Код тарифа"
+              value={tariffLocal}
+              onChange={(e) => setTariffLocal(e.target.value)}
+              placeholder="Код тарифа / id"
             />
-            <label className="inline-flex items-center gap-2 text-sm whitespace-nowrap">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-primary"
-                checked={trialOnly}
-                onChange={(e) => {
-                  setTrialOnly(e.target.checked);
-                  setPage(1);
-                }}
-              />
-              Только триал
-            </label>
+            <Select
+              value={filters.is_free_trial}
+              onChange={(e) =>
+                setFilter('is_free_trial', e.target.value, { resetPage: true })
+              }
+            >
+              {TRIAL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            <DatePicker
+              value={filters.expires_from}
+              onChange={(v) =>
+                setFilter('expires_from', v, { resetPage: true })
+              }
+              placeholder="Истекает с"
+            />
+            <DatePicker
+              value={filters.expires_to}
+              onChange={(v) => setFilter('expires_to', v, { resetPage: true })}
+              placeholder="Истекает по"
+            />
           </div>
 
           {query.isLoading && !query.data ? (
@@ -161,7 +226,7 @@ export default function SubsList() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>
-                      <SortHeader field="id" sort={sort} onSort={handleSort}>
+                      <SortHeader field="id" sort={filters.sort} onSort={handleSort}>
                         ID
                       </SortHeader>
                     </TableHead>
@@ -174,7 +239,7 @@ export default function SubsList() {
                     <TableHead>
                       <SortHeader
                         field="expires_at"
-                        sort={sort}
+                        sort={filters.sort}
                         onSort={handleSort}
                       >
                         Истекает
@@ -183,7 +248,7 @@ export default function SubsList() {
                     <TableHead>
                       <SortHeader
                         field="created_at"
-                        sort={sort}
+                        sort={filters.sort}
                         onSort={handleSort}
                       >
                         Создана
@@ -192,52 +257,66 @@ export default function SubsList() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((s) => (
-                    <TableRow
-                      key={s.id}
-                      className="cursor-pointer"
-                      onClick={() => navigate(`/subscriptions/${s.id}`)}
-                    >
-                      <TableCell className="font-mono">#{s.id}</TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Link
-                          to={`/users/${s.user_id}`}
-                          className="text-primary hover:underline"
-                        >
-                          {s.user_username
-                            ? '@' + truncate(s.user_username, 18)
-                            : `tg_id ${s.user_tg_id}`}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{s.tariff_name ?? s.tariff_code ?? '—'}</TableCell>
-                      <TableCell className="text-right">{s.devices}</TableCell>
-                      <TableCell className="text-right">{s.days ?? '—'}</TableCell>
-                      <TableCell className="max-w-[220px] truncate font-mono text-xs">
-                        {s.key_url ? truncate(s.key_url, 28) : '—'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            s.status === 'active'
-                              ? 'success'
-                              : s.status === 'expired'
-                                ? 'warning'
-                                : s.status === 'deactivated'
-                                  ? 'destructive'
-                                  : 'muted'
-                          }
-                        >
-                          {s.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatDateTime(s.expires_at)}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatDateTime(s.created_at)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {items.map((s) => {
+                    const expiringSoon = isExpiringSoon(s.expires_at, s.status);
+                    return (
+                      <TableRow
+                        key={s.id}
+                        className="cursor-pointer"
+                        onClick={() => navigate(`/subscriptions/${s.id}`)}
+                      >
+                        <TableCell className="font-mono">#{s.id}</TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Link
+                            to={`/users/${s.user_id}`}
+                            className="text-primary hover:underline"
+                          >
+                            {s.user_username
+                              ? '@' + truncate(s.user_username, 18)
+                              : `tg_id ${s.user_tg_id}`}
+                          </Link>
+                        </TableCell>
+                        <TableCell>{s.tariff_name ?? s.tariff_code ?? '—'}</TableCell>
+                        <TableCell className="text-right">{s.devices}</TableCell>
+                        <TableCell className="text-right">{s.days ?? '—'}</TableCell>
+                        <TableCell className="max-w-[220px] truncate font-mono text-xs">
+                          {s.key_url ? truncate(s.key_url, 28) : '—'}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <Badge
+                              variant={
+                                s.status === 'active'
+                                  ? 'success'
+                                  : s.status === 'expired'
+                                    ? 'warning'
+                                    : s.status === 'deactivated'
+                                      ? 'destructive'
+                                      : 'muted'
+                              }
+                            >
+                              {s.status}
+                            </Badge>
+                            {expiringSoon && (
+                              <Badge
+                                variant="warning"
+                                title={`Истекает в течение ${EXPIRE_SOON_DAYS} дней`}
+                              >
+                                <Clock className="mr-1 h-3 w-3" />
+                                soon
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {formatDateTime(s.expires_at)}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {formatDateTime(s.created_at)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
 
@@ -247,7 +326,7 @@ export default function SubsList() {
                   pages={meta.pages}
                   total={meta.total}
                   perPage={meta.per_page}
-                  onPageChange={setPage}
+                  onPageChange={(p) => setFilter('page', p)}
                 />
               )}
             </>
