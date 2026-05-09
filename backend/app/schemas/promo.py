@@ -23,6 +23,11 @@ class PromoApplyResponse(BaseModel):
     percent: int | None = None
     promo_id: int | None = None
     message: str | None = None
+    # The user's *post-credit* balance in kopecks (only set for ``balance``
+    # type promos). The bot renders this directly to the user as
+    # «Текущий баланс: X ₽» — so the value is computed server-side after
+    # the credit so we don't have to fetch the balance again client-side.
+    balance_kopecks: int | None = None
 
 
 @dataclass
@@ -34,3 +39,6 @@ class PromoApplyResult:
     percent: int | None = None
     promo_id: int | None = None
     message_text: str | None = None
+    # Post-credit balance for ``balance`` promos. ``None`` for discount promos
+    # (no balance change at apply time).
+    balance_kopecks: int | None = None

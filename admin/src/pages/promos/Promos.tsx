@@ -58,9 +58,29 @@ function generateCode(length = 8): string {
 function formatDate(value: string | null | undefined): string {
   if (!value) return '—';
   try {
-    return new Date(value).toLocaleString('ru-RU');
+    return new Date(value).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
   } catch {
     return value;
+  }
+}
+
+/**
+ * Convert a backend ISO timestamp (UTC) into the
+ * "YYYY-MM-DDTHH:MM" string that <input type="datetime-local"> expects,
+ * rendered in Moscow time. The admin entered the time in MSK; we round-trip it
+ * back in MSK so the form shows what they typed (not what UTC stored it as).
+ */
+function formatForDateTimeLocal(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try {
+    // 'sv-SE' gives ISO-ish "YYYY-MM-DD HH:MM:SS" output; we trim to minutes
+    // and swap the space for the 'T' separator the input element wants.
+    const msk = new Date(iso).toLocaleString('sv-SE', {
+      timeZone: 'Europe/Moscow',
+    });
+    return msk.slice(0, 16).replace(' ', 'T');
+  } catch {
+    return '';
   }
 }
 
@@ -406,11 +426,21 @@ function CreatePromoDialog({ open, onClose, onSubmit, isPending }: CreateProps) 
             </div>
             <div className="space-y-1">
               <Label htmlFor="valid_from">Действует с</Label>
-              <Input id="valid_from" type="date" {...form.register('valid_from')} />
+              <Input
+                id="valid_from"
+                type="datetime-local"
+                {...form.register('valid_from')}
+              />
+              <p className="text-xs text-muted-foreground">МСК (Europe/Moscow)</p>
             </div>
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="valid_until">Действует до</Label>
-              <Input id="valid_until" type="date" {...form.register('valid_until')} />
+              <Input
+                id="valid_until"
+                type="datetime-local"
+                {...form.register('valid_until')}
+              />
+              <p className="text-xs text-muted-foreground">МСК (Europe/Moscow)</p>
             </div>
           </div>
 
@@ -455,14 +485,14 @@ function EditPromoDialog({ promo, onClose }: EditProps) {
       is_active: promo?.is_active ?? true,
       max_total_activations: promo?.max_total_activations ?? '',
       max_per_user: promo?.max_per_user ?? 1,
-      valid_until: promo?.valid_until?.slice(0, 10) ?? '',
+      valid_until: formatForDateTimeLocal(promo?.valid_until),
     },
     values: promo
       ? {
           is_active: promo.is_active,
           max_total_activations: promo.max_total_activations ?? '',
           max_per_user: promo.max_per_user,
-          valid_until: promo.valid_until?.slice(0, 10) ?? '',
+          valid_until: formatForDateTimeLocal(promo.valid_until),
         }
       : undefined,
   });
@@ -538,7 +568,12 @@ function EditPromoDialog({ promo, onClose }: EditProps) {
           </div>
           <div className="space-y-1">
             <Label htmlFor="valid_until">Действует до</Label>
-            <Input id="valid_until" type="date" {...form.register('valid_until')} />
+            <Input
+              id="valid_until"
+              type="datetime-local"
+              {...form.register('valid_until')}
+            />
+            <p className="text-xs text-muted-foreground">МСК (Europe/Moscow)</p>
           </div>
 
           <div className="flex items-center gap-3">

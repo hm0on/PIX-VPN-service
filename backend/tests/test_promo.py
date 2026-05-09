@@ -186,9 +186,15 @@ async def test_apply_max_per_user_exceeded_after_first_apply(  # noqa: ANN001
 
 
 @pytest.mark.asyncio
-async def test_apply_balance_credits_user_creates_activation_and_outbox(  # noqa: ANN001
+async def test_apply_balance_credits_user_and_creates_activation(  # noqa: ANN001
     client, auth_headers, seeded_user
 ):
+    """Balance promos credit the user, create the activation row, and bump
+    ``current_activations`` — but they MUST NOT enqueue an outbox text. The
+    bot already renders ``promo_balance_applied`` synchronously from the
+    HTTP response (see ``bot/app/handlers/promo.py`` etc.); a duplicate
+    outbox delivery is the very bug we're guarding against here.
+    """
     from app.db.models.outbox import Outbox
     from app.db.session import get_session_factory
 
@@ -213,6 +219,13 @@ async def test_apply_balance_credits_user_creates_activation_and_outbox(  # noqa
     assert body["promo_id"] == promo_id
     assert body["percent"] is None
     assert body["message"] is not None
+    # Regression: ``balance_kopecks`` is the *post-credit* balance and the
+    # bot reads it to render «Текущий баланс: X ₽» — when this field was
+    # missing from the schema the bot fell back to 0 and the user saw a
+    # bogus first message ("Текущий баланс: 0 ₽") followed by the correct
+    # outbox-delivered second message. The two-message bug is gone iff the
+    # bot has the right balance available synchronously.
+    assert body["balance_kopecks"] == starting_balance + 10000
 
     # Balance credited.
     new_balance = await _get_user_balance(seeded_user["tg_id"])
@@ -229,14 +242,16 @@ async def test_apply_balance_credits_user_creates_activation_and_outbox(  # noqa
     assert activations[0].amount_applied_kopecks == 10000
     assert activations[0].payment_id is None
 
-    # Outbox message enqueued for this user.
+    # No ``promo_balance_applied`` outbox message — the bot delivers that
+    # synchronously from the HTTP response, so an outbox copy would
+    # produce the duplicate "two messages on activation" UX bug.
     factory = get_session_factory()
     async with factory() as session:
         result = await session.execute(
             select(Outbox).where(Outbox.user_id == seeded_user["id"])
         )
         rows = list(result.scalars().all())
-        assert any(
+        assert not any(
             (r.payload or {}).get("text_key") == "promo_balance_applied"
             for r in rows
         )
@@ -289,6 +304,9 @@ async def test_apply_discount_does_not_touch_balance_or_activations(  # noqa: AN
     assert body["percent"] == 10
     assert body["promo_id"] == promo_id
     assert body["amount_kopecks"] is None
+    # Discount promos don't move the balance — the field is left null so
+    # bot handlers can tell "no credit happened" from "credit landed at 0".
+    assert body["balance_kopecks"] is None
 
     # Balance NOT touched.
     new_balance = await _get_user_balance(seeded_user["tg_id"])

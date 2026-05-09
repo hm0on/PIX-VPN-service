@@ -16,7 +16,6 @@ from app.db.models.balance_transaction import (
     BT_REASON_PROMO_BONUS,
     BalanceTransaction,
 )
-from app.db.models.outbox import OUTBOX_MSG_TEXT
 from app.db.models.promo_activation import PromoActivation
 from app.db.models.promo_code import (
     PROMO_TYPE_BALANCE,
@@ -27,7 +26,6 @@ from app.db.models.user import User
 from app.repositories.promo_activation_repo import PromoActivationRepository
 from app.repositories.promo_code_repo import PromoCodeRepository
 from app.schemas.promo import PromoApplyResult
-from app.services import outbox_service
 
 logger = get_logger("promo_service")
 
@@ -66,7 +64,10 @@ class PromoService:
         """Validate a promo code, apply the side-effects, and return a result.
 
         - Balance promos: credit user balance, create PromoActivation,
-          increment current_activations, enqueue an outbox message.
+          increment current_activations. The "promo applied" notification
+          is rendered to the user *synchronously* by the bot from the HTTP
+          response — we deliberately do NOT enqueue an outbox text here,
+          since that would deliver a second copy.
         - Discount promos: only return promo metadata. The activation row
           and current_activations bump happen later in
           `record_discount_activation` after the corresponding payment is paid.
@@ -136,6 +137,29 @@ class PromoService:
                 payment_id=payment_id,
             )
             return None
+
+        # Best-effort visibility: if the promo's validity window passed
+        # between FSM-time validation and the payment-paid webhook, log it
+        # but still record the activation — the user already paid the
+        # discounted price, refusing to record would only hide the fact
+        # that we charged them with an expired promo.
+        now = _now()
+        if promo.valid_until is not None and now > _aware(promo.valid_until):
+            logger.warning(
+                "promo_record_discount_after_expiry",
+                promo_id=promo_id,
+                user_id=user_id,
+                payment_id=payment_id,
+                valid_until=_aware(promo.valid_until).isoformat(),
+                now=now.isoformat(),
+            )
+        if not promo.is_active:
+            logger.warning(
+                "promo_record_discount_inactive",
+                promo_id=promo_id,
+                user_id=user_id,
+                payment_id=payment_id,
+            )
 
         # Re-check limits at apply time (race protection).
         if promo.max_total_activations is not None and (
@@ -263,21 +287,12 @@ class PromoService:
         # Increment current_activations on the locked promo row.
         await self.repo.increment_activations(promo.id)
 
-        # Outbox notification.
-        await outbox_service.enqueue_message(
-            self.session,
-            user_id=locked_user.id,
-            chat_id=locked_user.tg_id,
-            message_type=OUTBOX_MSG_TEXT,
-            payload={
-                "text_key": "promo_balance_applied",
-                "format_kwargs": {
-                    "amount": amount // 100,
-                    "balance": new_balance // 100,
-                },
-                "parse_mode": "HTML",
-            },
-        )
+        # NOTE: we deliberately do NOT enqueue an outbox notification here.
+        # The bot's promo handlers (see ``bot/app/handlers/{promo,catalog,
+        # profile}.py``) already render ``promo_balance_applied`` to the
+        # user synchronously after this endpoint returns. Re-sending it via
+        # the outbox would deliver a second, identical message a second or
+        # two later, which is exactly the bug users were reporting.
 
         await business_log(
             self.session,
@@ -301,6 +316,7 @@ class PromoService:
             amount_kopecks=amount,
             promo_id=promo.id,
             message_text=message_text,
+            balance_kopecks=new_balance,
         )
 
     async def _apply_discount(

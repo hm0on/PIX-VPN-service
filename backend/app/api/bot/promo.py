@@ -35,4 +35,5 @@ async def apply_promo(
         percent=result.percent,
         promo_id=result.promo_id,
         message=result.message_text,
+        balance_kopecks=result.balance_kopecks,
     )
