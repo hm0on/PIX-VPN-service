@@ -1,6 +1,7 @@
 import { api } from '@/api/client';
 import type {
   BalanceAdjustRequest,
+  BalanceSetRequest,
   BalanceTransaction,
   BanRequest,
   Page,
@@ -28,4 +29,6 @@ export const usersApi = {
   unban: (id: number) => api.post<User>(`/admin/users/${id}/unban`),
   balanceAdjust: (id: number, payload: BalanceAdjustRequest) =>
     api.post<User, BalanceAdjustRequest>(`/admin/users/${id}/balance/adjust`, payload),
+  balanceSet: (id: number, payload: BalanceSetRequest) =>
+    api.post<User, BalanceSetRequest>(`/admin/users/${id}/balance/set`, payload),
 };

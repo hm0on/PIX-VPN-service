@@ -160,6 +160,11 @@ export interface BalanceAdjustRequest {
   reason: string;
 }
 
+export interface BalanceSetRequest {
+  amount_kop: number; // absolute target, >= 0
+  reason: string;
+}
+
 /* ---------- Subscriptions ---------- */
 
 export interface Subscription {

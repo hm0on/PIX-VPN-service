@@ -108,6 +108,40 @@ class AdminUserBanRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
 
 
+# ---------------------------------------------------------------------------
+# Bulk operations (message / ban)
+#
+# Шлются из тулбара в UsersList после select-чекбокса. Лимит 200 ID —
+# выше уже эпистолярный жанр, не админка.
+# ---------------------------------------------------------------------------
+
+
+class AdminUserBulkMessageRequest(BaseModel):
+    user_ids: list[int] = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=4000)
+    parse_mode: str | None = Field(
+        default="HTML",
+        description="Telegram parse_mode: HTML | MarkdownV2 | None",
+    )
+
+
+class AdminUserBulkMessageResponse(BaseModel):
+    enqueued: int
+    skipped_banned: int
+    not_found: list[int] = Field(default_factory=list)
+
+
+class AdminUserBulkBanRequest(BaseModel):
+    user_ids: list[int] = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class AdminUserBulkBanResponse(BaseModel):
+    banned: int
+    already_banned: int
+    not_found: list[int] = Field(default_factory=list)
+
+
 class AdminUserBalanceAdjustRequest(BaseModel):
     amount_kop: int = Field(description="Signed delta in kopecks")
     reason: str = Field(min_length=1, max_length=2000)
@@ -117,3 +151,15 @@ class AdminUserBalanceAdjustResponse(BaseModel):
     user_id: int
     balance_kop: int
     delta_kop: int
+
+
+class AdminUserBalanceSetRequest(BaseModel):
+    """Установить баланс юзера в точное значение (в копейках).
+
+    Внутри сервер посчитает delta = target - current и пройдёт через
+    те же ``BalanceService.add_admin_adjust`` + ``BalanceTransaction``,
+    чтобы аудит и ивенты не отличались от обычного adjust.
+    """
+
+    amount_kop: int = Field(ge=0, description="Target absolute balance in kopecks")
+    reason: str = Field(min_length=1, max_length=2000)

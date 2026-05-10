@@ -22,8 +22,13 @@ from app.repositories.outbox_repo import OutboxRepository
 from app.schemas.admin_panel.users import (
     AdminUserBalanceAdjustRequest,
     AdminUserBalanceAdjustResponse,
+    AdminUserBalanceSetRequest,
     AdminUserBalanceTxItem,
     AdminUserBanRequest,
+    AdminUserBulkBanRequest,
+    AdminUserBulkBanResponse,
+    AdminUserBulkMessageRequest,
+    AdminUserBulkMessageResponse,
     AdminUserDetail,
     AdminUserListItem,
     AdminUserPaymentItem,
@@ -486,6 +491,218 @@ async def adjust_balance(
         user_id=user.id,
         balance_kop=new_balance,
         delta_kop=delta_kopecks,
+    )
+
+
+@router.post(
+    "/{user_id}/balance/set",
+    response_model=AdminUserBalanceAdjustResponse,
+)
+async def set_balance(
+    user_id: int,
+    payload: AdminUserBalanceSetRequest,
+    session: DBSession,
+    admin: AdminDep,
+    northline: NorthLineClientDep,
+) -> AdminUserBalanceAdjustResponse:
+    """Установить баланс юзера в точное значение.
+
+    Сделано как «обёртка» над ``adjust``: считаем delta и идём через
+    обычный путь. Так BalanceTransaction, audit, outbox-нотификация —
+    всё едино с adjust'ом, и история юзера остаётся консистентной.
+
+    Сейф-кап: 1 000 000 ₽ (100 000 000 копеек). Если кому-то нужно
+    выше — сначала Adjust'ом, осознанно.
+    """
+    HARD_CAP_KOP = 100_000_000  # 1 000 000 ₽
+
+    if payload.amount_kop > HARD_CAP_KOP:
+        from app.core.exceptions import ValidationError
+
+        raise ValidationError(
+            f"Target balance is too high (max {HARD_CAP_KOP} kop = "
+            f"{HARD_CAP_KOP // 100} ₽). Use /adjust for explicit large changes.",
+            error_code="balance_target_too_high",
+        )
+
+    user = await _get_user_or_404(session, user_id)
+    current = int(user.balance_kopecks)
+    target = int(payload.amount_kop)
+    delta = target - current
+
+    # Идемпотентность: если уже совпадает — ничего не пишем, не шумим
+    # юзеру outbox-сообщением «изменили на 0».
+    if delta == 0:
+        return AdminUserBalanceAdjustResponse(
+            user_id=user.id,
+            balance_kop=current,
+            delta_kop=0,
+        )
+
+    service = BalanceService(session, northline)
+    new_balance = await service.add_admin_adjust(
+        user_id=user.id,
+        amount_kopecks=delta,
+        reason=f"set: {payload.reason}",
+        admin_key_id=admin.kid,
+        admin_key_label=admin.label,
+    )
+
+    outbox = OutboxRepository(session)
+    await outbox.enqueue(
+        user_id=user.id,
+        chat_id=user.tg_id,
+        message_type=OUTBOX_MSG_TEXT,
+        payload={
+            "text_key": "balance_admin_adjusted",
+            "format_kwargs": {
+                "delta": _kopecks_to_rub_str(delta),
+                "balance": f"{new_balance / 100:.2f}",
+                "reason": payload.reason,
+            },
+            "parse_mode": "HTML",
+        },
+    )
+
+    await record_admin_action(
+        session,
+        admin,
+        action="user.balance.set",
+        target_user_id=user.id,
+        extra={
+            "previous_balance_kopecks": current,
+            "target_balance_kopecks": target,
+            "delta_kopecks": delta,
+            "reason": payload.reason,
+        },
+    )
+    await session.commit()
+    return AdminUserBalanceAdjustResponse(
+        user_id=user.id,
+        balance_kop=new_balance,
+        delta_kop=delta,
+    )
+
+
+@router.post(
+    "/bulk-message",
+    response_model=AdminUserBulkMessageResponse,
+)
+async def bulk_message_users(
+    payload: AdminUserBulkMessageRequest,
+    session: DBSession,
+    admin: AdminDep,
+) -> AdminUserBulkMessageResponse:
+    """Поставить в outbox одинаковое сообщение для пачки юзеров.
+
+    Текст уезжает через шаблон ``admin_direct_message`` (видит
+    ``{text}`` и просто его рендерит). Banned-юзеров не трогаем —
+    бот всё равно не сможет им написать, и аудит будет шумнее.
+    """
+    user_ids = list(dict.fromkeys(payload.user_ids))
+    rows = (
+        await session.execute(
+            select(User).where(User.id.in_(user_ids))
+        )
+    ).scalars().all()
+
+    found = {u.id: u for u in rows}
+    not_found = [uid for uid in user_ids if uid not in found]
+
+    outbox = OutboxRepository(session)
+    enqueued = 0
+    skipped_banned = 0
+    for uid in user_ids:
+        u = found.get(uid)
+        if u is None:
+            continue
+        if u.is_banned:
+            skipped_banned += 1
+            continue
+        await outbox.enqueue(
+            user_id=u.id,
+            chat_id=u.tg_id,
+            message_type=OUTBOX_MSG_TEXT,
+            payload={
+                "text_key": "admin_direct_message",
+                "format_kwargs": {"text": payload.text},
+                "parse_mode": payload.parse_mode,
+                "kind": "admin_direct_message",
+            },
+        )
+        enqueued += 1
+
+    await record_admin_action(
+        session,
+        admin,
+        action="user.bulk_message",
+        extra={
+            "requested": len(user_ids),
+            "enqueued": enqueued,
+            "skipped_banned": skipped_banned,
+            "not_found_count": len(not_found),
+            "text_preview": payload.text[:120],
+        },
+    )
+    await session.commit()
+    return AdminUserBulkMessageResponse(
+        enqueued=enqueued,
+        skipped_banned=skipped_banned,
+        not_found=not_found,
+    )
+
+
+@router.post(
+    "/bulk-ban",
+    response_model=AdminUserBulkBanResponse,
+)
+async def bulk_ban_users(
+    payload: AdminUserBulkBanRequest,
+    session: DBSession,
+    admin: AdminDep,
+) -> AdminUserBulkBanResponse:
+    """Массовый бан. Уже забаненных не трогаем (idempotent), notify не шлём
+    в bulk — иначе можно случайно «спамнуть» 200 юзеров уведомлением о
+    бане; админ знает, что делает, и при необходимости разошлёт текст
+    через ``/bulk-message``.
+    """
+    user_ids = list(dict.fromkeys(payload.user_ids))
+    rows = (
+        await session.execute(
+            select(User).where(User.id.in_(user_ids))
+        )
+    ).scalars().all()
+
+    found = {u.id: u for u in rows}
+    not_found = [uid for uid in user_ids if uid not in found]
+
+    banned = 0
+    already_banned = 0
+    for u in rows:
+        if u.is_banned:
+            already_banned += 1
+            continue
+        u.is_banned = True
+        u.banned_reason = payload.reason
+        banned += 1
+
+    await record_admin_action(
+        session,
+        admin,
+        action="user.bulk_ban",
+        extra={
+            "reason": payload.reason,
+            "requested": len(user_ids),
+            "banned": banned,
+            "already_banned": already_banned,
+            "not_found_count": len(not_found),
+        },
+    )
+    await session.commit()
+    return AdminUserBulkBanResponse(
+        banned=banned,
+        already_banned=already_banned,
+        not_found=not_found,
     )
 
 

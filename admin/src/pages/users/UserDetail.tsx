@@ -85,6 +85,12 @@ export default function UserDetail() {
   const [adjOpen, setAdjOpen] = useState(false);
   const [adjAmount, setAdjAmount] = useState('');
   const [adjReason, setAdjReason] = useState('');
+  // Set-balance dialog: вводим целевое значение в РУБЛЯХ (не копейках —
+  // в копейках слишком легко промахнуться на два нуля), на сабмите
+  // умножаем на 100. Это спасает от случая «накрутить миллиард».
+  const [setOpen, setSetOpen] = useState(false);
+  const [setAmountRub, setSetAmountRub] = useState('');
+  const [setReason, setSetReason] = useState('');
   const [ticketModal, setTicketModal] = useState<UserTicket | null>(null);
 
   const userQuery = useQuery({
@@ -164,6 +170,32 @@ export default function UserDetail() {
       setAdjOpen(false);
       setAdjAmount('');
       setAdjReason('');
+      invalidateUser();
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const setMutation = useMutation({
+    mutationFn: () => {
+      // Принимаем рубли (с дробной частью), переводим в копейки.
+      const rub = Number(setAmountRub.replace(',', '.'));
+      if (!Number.isFinite(rub) || rub < 0) {
+        return Promise.reject(new Error('Укажите сумму ≥ 0 в рублях'));
+      }
+      const kopecks = Math.round(rub * 100);
+      if (!setReason.trim()) {
+        return Promise.reject(new Error('Укажите причину'));
+      }
+      return usersApi.balanceSet(id, {
+        amount_kop: kopecks,
+        reason: setReason.trim(),
+      });
+    },
+    onSuccess: () => {
+      toast.success('Баланс установлен');
+      setSetOpen(false);
+      setSetAmountRub('');
+      setSetReason('');
       invalidateUser();
     },
     onError: (err) => toast.error(getErrorMessage(err)),
@@ -279,6 +311,19 @@ export default function UserDetail() {
                   <Button variant="outline" onClick={() => setAdjOpen(true)}>
                     <Wallet className="h-4 w-4" />
                     Изменить баланс
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      // Префиллим текущим балансом в рублях, чтобы не
+                      // переписывать с нуля.
+                      const cur = ((user?.balance_kop ?? 0) / 100).toFixed(2);
+                      setSetAmountRub(cur);
+                      setSetOpen(true);
+                    }}
+                  >
+                    <Wallet className="h-4 w-4" />
+                    Установить точно
                   </Button>
                 </div>
               </CardContent>
@@ -703,6 +748,71 @@ export default function UserDetail() {
                 <Loader2 className="h-4 w-4 animate-spin" />
               )}
               Применить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Balance SET dialog */}
+      <Dialog open={setOpen} onOpenChange={setSetOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Установить баланс</DialogTitle>
+            <DialogDescription>
+              Введите целевую сумму в рублях. Бэкенд посчитает delta и
+              применит как обычный admin_adjust. Лимит: 1 000 000 ₽.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="set-amount">Целевая сумма, ₽</Label>
+              <Input
+                id="set-amount"
+                type="number"
+                step="0.01"
+                min="0"
+                value={setAmountRub}
+                onChange={(e) => setSetAmountRub(e.target.value)}
+                placeholder="например, 1000.00"
+                disabled={setMutation.isPending}
+              />
+              <p className="text-xs text-muted-foreground">
+                Текущий баланс: {((user?.balance_kop ?? 0) / 100).toFixed(2)} ₽
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="set-reason">Причина</Label>
+              <Textarea
+                id="set-reason"
+                rows={2}
+                value={setReason}
+                onChange={(e) => setSetReason(e.target.value)}
+                placeholder="Кратко опишите, для аудита"
+                disabled={setMutation.isPending}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSetOpen(false)}
+              disabled={setMutation.isPending}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={() => setMutation.mutate()}
+              disabled={
+                setMutation.isPending ||
+                setAmountRub === '' ||
+                Number(setAmountRub.replace(',', '.')) < 0 ||
+                !setReason.trim()
+              }
+            >
+              {setMutation.isPending && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+              Установить
             </Button>
           </DialogFooter>
         </DialogContent>
