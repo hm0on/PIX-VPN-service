@@ -10,6 +10,7 @@ from sqlalchemy import and_, func, or_, select
 
 from app.core.exceptions import (
     AppError,
+    ConflictError,
     NorthLineClientError,
     NorthLineUnavailableError,
     NotFoundError,
@@ -17,7 +18,9 @@ from app.core.exceptions import (
 )
 from app.db.models.outbox import OUTBOX_MSG_TEXT
 from app.db.models.subscription import (
+    SUB_STATUS_ACTIVE,
     SUB_STATUS_DEACTIVATED,
+    SUB_STATUS_SUSPENDED,
     Subscription,
 )
 from app.db.models.tariff import Tariff
@@ -32,6 +35,9 @@ from app.schemas.admin_panel.subscriptions import (
     AdminSubInfoResponse,
     AdminSubListItem,
     AdminSubReconcileResponse,
+    AdminSubResumeResponse,
+    AdminSubStopRequest,
+    AdminSubStopResponse,
     AdminSubsPage,
 )
 from app.schemas.common import OkResponse
@@ -275,17 +281,27 @@ async def deactivate_subscription(
     admin: AdminDep,
     northline: NorthLineClientDep,
 ) -> AdminSubDeactivateResponse:
+    """Полное удаление ключа на NorthLine.
+
+    Под капотом — ``POST /keys/{id}/delete``: ключ необратимо снимается у
+    провайдера (V2RayTun сразу теряет конфиг), остаток списанных средств
+    возвращается реселлеру (``refund_rub``). Локальный статус меняется
+    на ``deactivated`` для совместимости с фильтрами в боте/репозитории.
+    """
     sub = await _get_sub_or_404(session, sub_id)
 
-    # Best-effort NorthLine call; on hard failure, surface 502 (don't mark in DB).
+    # Real provider call. Hard failure surfaces 502 to the admin and we
+    # don't touch local DB — пусть админ повторит.
+    refund_rub: float | None = None
     if sub.provider_subscription_id:
         try:
-            await northline.deactivate_key(
+            result = await northline.delete_key(
                 subscription_id=sub.provider_subscription_id,
-                reason=payload.reason,
+                idempotency_key=f"admin-deactivate-{sub.id}",
             )
+            refund_rub = result.refund_rub
         except NorthLineClientError as e:
-            # 4xx from NorthLine: re-raise as AppError (mapped to 502 by handler).
+            # 4xx from NorthLine: re-raise (mapped to 502 by app exception handler).
             raise e
         except NorthLineUnavailableError as e:
             raise e
@@ -321,7 +337,7 @@ async def deactivate_subscription(
         action="subscription.deactivate",
         target_user_id=sub.user_id,
         target_subscription_id=sub.id,
-        extra={"reason": payload.reason},
+        extra={"reason": payload.reason, "refund_rub": refund_rub},
     )
     await session.commit()
 
@@ -330,6 +346,153 @@ async def deactivate_subscription(
         status=sub.status,
         deactivated_at=sub.deactivated_at,
         deactivation_reason=sub.deactivation_reason,
+        refund_rub=refund_rub,
+    )
+
+
+@router.post("/{sub_id}/stop", response_model=AdminSubStopResponse)
+async def stop_subscription(
+    sub_id: int,
+    payload: AdminSubStopRequest,
+    session: DBSession,
+    admin: AdminDep,
+    northline: NorthLineClientDep,
+) -> AdminSubStopResponse:
+    """Обратимая приостановка подписки на стороне NorthLine.
+
+    Вызывает ``POST /keys/{id}/stop`` — пользователь сразу теряет доступ,
+    но подписку можно вернуть командой ``/resume``. Срок ``expires_at``
+    при этом не двигается (время идёт даже на паузе).
+    """
+    sub = await _get_sub_or_404(session, sub_id)
+
+    if sub.status != SUB_STATUS_ACTIVE:
+        raise ConflictError(
+            f"Subscription #{sub.id} is in status '{sub.status}', "
+            f"only active subscriptions can be suspended",
+            error_code="invalid_subscription_status",
+        )
+
+    if sub.provider_subscription_id:
+        try:
+            await northline.stop_key(
+                subscription_id=sub.provider_subscription_id,
+            )
+        except NorthLineClientError as e:
+            raise e
+        except NorthLineUnavailableError as e:
+            raise e
+
+    now = datetime.now(tz=UTC)
+    sub.status = SUB_STATUS_SUSPENDED
+    # Reuse the existing deactivation_reason column — it's a free-form text
+    # field already used for «Деактивировать», semantics overlap fine.
+    sub.deactivation_reason = payload.reason
+    sub.deactivated_at = now
+    await session.flush()
+
+    user_res = await session.execute(select(User).where(User.id == sub.user_id))
+    user = user_res.scalar_one_or_none()
+    if user is not None:
+        outbox = OutboxRepository(session)
+        await outbox.enqueue(
+            user_id=user.id,
+            chat_id=user.tg_id,
+            message_type=OUTBOX_MSG_TEXT,
+            payload={
+                "text_key": "subscription_suspended_by_admin",
+                "format_kwargs": {
+                    "key_id": sub.id,
+                    "reason": payload.reason,
+                },
+                "parse_mode": "HTML",
+            },
+        )
+
+    await record_admin_action(
+        session,
+        admin,
+        action="subscription.stop",
+        target_user_id=sub.user_id,
+        target_subscription_id=sub.id,
+        extra={"reason": payload.reason},
+    )
+    await session.commit()
+
+    return AdminSubStopResponse(
+        id=sub.id,
+        status=sub.status,
+        suspended_at=sub.deactivated_at,
+        reason=sub.deactivation_reason,
+    )
+
+
+@router.post("/{sub_id}/resume", response_model=AdminSubResumeResponse)
+async def resume_subscription(
+    sub_id: int,
+    session: DBSession,
+    admin: AdminDep,
+    northline: NorthLineClientDep,
+) -> AdminSubResumeResponse:
+    """Возобновление приостановленной подписки.
+
+    Вызывает ``POST /keys/{id}/resume`` у NorthLine, переводит локальный
+    статус обратно в ``active``. Срок ``expires_at`` не меняется.
+    """
+    sub = await _get_sub_or_404(session, sub_id)
+
+    if sub.status != SUB_STATUS_SUSPENDED:
+        raise ConflictError(
+            f"Subscription #{sub.id} is in status '{sub.status}', "
+            f"only suspended subscriptions can be resumed",
+            error_code="invalid_subscription_status",
+        )
+
+    if sub.provider_subscription_id:
+        try:
+            await northline.resume_key(
+                subscription_id=sub.provider_subscription_id,
+            )
+        except NorthLineClientError as e:
+            raise e
+        except NorthLineUnavailableError as e:
+            raise e
+
+    sub.status = SUB_STATUS_ACTIVE
+    # Stale «paused-at» / «paused-reason» больше не релевантны — стираем,
+    # чтобы не путали оператора при следующей админ-сессии.
+    sub.deactivated_at = None
+    sub.deactivation_reason = None
+    await session.flush()
+
+    user_res = await session.execute(select(User).where(User.id == sub.user_id))
+    user = user_res.scalar_one_or_none()
+    if user is not None:
+        outbox = OutboxRepository(session)
+        await outbox.enqueue(
+            user_id=user.id,
+            chat_id=user.tg_id,
+            message_type=OUTBOX_MSG_TEXT,
+            payload={
+                "text_key": "subscription_resumed_by_admin",
+                "format_kwargs": {"key_id": sub.id},
+                "parse_mode": "HTML",
+            },
+        )
+
+    await record_admin_action(
+        session,
+        admin,
+        action="subscription.resume",
+        target_user_id=sub.user_id,
+        target_subscription_id=sub.id,
+        extra={},
+    )
+    await session.commit()
+
+    return AdminSubResumeResponse(
+        id=sub.id,
+        status=sub.status,
     )
 
 

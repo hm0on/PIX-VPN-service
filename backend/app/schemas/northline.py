@@ -19,7 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 # Enum статусов подписки на стороне NorthLine.
-NorthLineSubStatus = Literal["active", "suspended", "expired"]
+# ``deleted`` появилось вместе с реальным ``POST /keys/{id}/delete`` —
+# раньше провайдер не отдавал такой статус, потому что endpoint'а не было.
+NorthLineSubStatus = Literal["active", "suspended", "expired", "deleted"]
 
 
 class KeyResponse(BaseModel):
@@ -51,14 +53,58 @@ class ExtendResponse(BaseModel):
     charged_rub: float | None = None
 
 
-class DeactivateResponse(BaseModel):
-    """Synthetic — у reseller API нет deactivate-эндпоинта, поэтому
-    объект конструируется локально внутри :meth:`NorthLineClient.deactivate_key`,
-    чтобы admin-flow оставался однородным."""
+class DeleteResponse(BaseModel):
+    """Response of ``POST /keys/{id}/delete`` (alias ``/remove``).
+
+    Подписка переходит в терминальный статус ``deleted`` — продлить или
+    возобновить её уже нельзя. Провайдер возвращает ``refund_rub``
+    (остаток списанных средств). Сейчас мы его только логируем; учётом
+    реселлер-баланса займёмся отдельно.
+    """
+
+    model_config = ConfigDict(extra="ignore")
 
     ok: bool = True
     subscription_id: str
-    deactivated_at: datetime
+    status: Literal["deleted"]
+    expires_at: datetime | None = None
+    refund_rub: float | None = None
+
+
+class StopResponse(BaseModel):
+    """Response of ``POST /keys/{id}/stop`` (alias ``/suspend``).
+
+    Подписка переходит в ``suspended`` — обратимая блокировка, доступ
+    отключается немедленно, но подписку можно возобновить через
+    ``/resume``. Срок ``expires_at`` не двигается.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool = True
+    subscription_id: str
+    status: Literal["suspended"]
+    expires_at: datetime | None = None
+
+
+class ResumeResponse(BaseModel):
+    """Response of ``POST /keys/{id}/resume`` (alias ``/activate``).
+
+    Возобновляет ранее приостановленную подписку, возвращает её в
+    ``active``. Срок ``expires_at`` не двигается.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool = True
+    subscription_id: str
+    status: Literal["active"]
+    expires_at: datetime | None = None
+
+
+# Back-compat алиас для legacy callers, мигрирующих с no-op deactivate_key.
+# Новый код должен использовать ``DeleteResponse``.
+DeactivateResponse = DeleteResponse
 
 
 class KeyDevice(BaseModel):

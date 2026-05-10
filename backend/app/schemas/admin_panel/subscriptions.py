@@ -137,3 +137,25 @@ class AdminSubDeactivateResponse(BaseModel):
     status: str
     deactivated_at: datetime | None = None
     deactivation_reason: str | None = None
+    # NorthLine ``POST /keys/{id}/delete`` возвращает остаток списанных
+    # средств — оставляем как информационное поле для админки.
+    refund_rub: float | None = None
+
+
+class AdminSubStopRequest(BaseModel):
+    """Опциональная причина — сохраняется в ``deactivation_reason`` для
+    единообразия с ``/deactivate`` (поле в БД одно)."""
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class AdminSubStopResponse(BaseModel):
+    id: int
+    status: str
+    suspended_at: datetime | None = None
+    reason: str | None = None
+
+
+class AdminSubResumeResponse(BaseModel):
+    id: int
+    status: str

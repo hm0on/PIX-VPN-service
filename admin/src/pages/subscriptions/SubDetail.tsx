@@ -13,6 +13,8 @@ import {
   ExternalLink,
   Infinity as InfinityIcon,
   Loader2,
+  PauseCircle,
+  PlayCircle,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
@@ -255,6 +257,9 @@ export default function SubDetail() {
 
   const [deactOpen, setDeactOpen] = useState(false);
   const [deactReason, setDeactReason] = useState('');
+  const [stopOpen, setStopOpen] = useState(false);
+  const [stopReason, setStopReason] = useState('');
+  const [resumeOpen, setResumeOpen] = useState(false);
   const [confirmDevice, setConfirmDevice] = useState<string | null>(null);
 
   const subQuery = useQuery({
@@ -278,11 +283,40 @@ export default function SubDetail() {
   const deactivateMutation = useMutation({
     mutationFn: () =>
       subscriptionsApi.deactivate(id, { reason: deactReason.trim() }),
-    onSuccess: () => {
-      toast.success('Ключ деактивирован');
+    onSuccess: (data) => {
+      const refundNote =
+        data.refund_rub != null && data.refund_rub > 0
+          ? ` Возврат реселлеру: ${data.refund_rub.toFixed(2)} ₽.`
+          : '';
+      toast.success(`Ключ удалён у провайдера.${refundNote}`);
       setDeactOpen(false);
       setDeactReason('');
       void queryClient.invalidateQueries({ queryKey: ['sub', id] });
+      void queryClient.invalidateQueries({ queryKey: ['sub', id, 'info'] });
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: () =>
+      subscriptionsApi.stop(id, { reason: stopReason.trim() }),
+    onSuccess: () => {
+      toast.success('Подписка приостановлена');
+      setStopOpen(false);
+      setStopReason('');
+      void queryClient.invalidateQueries({ queryKey: ['sub', id] });
+      void queryClient.invalidateQueries({ queryKey: ['sub', id, 'info'] });
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: () => subscriptionsApi.resume(id),
+    onSuccess: () => {
+      toast.success('Подписка возобновлена');
+      setResumeOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ['sub', id] });
+      void queryClient.invalidateQueries({ queryKey: ['sub', id, 'info'] });
     },
     onError: (err) => toast.error(getErrorMessage(err)),
   });
@@ -381,9 +415,11 @@ export default function SubDetail() {
                 ? 'success'
                 : sub.status === 'expired'
                   ? 'warning'
-                  : sub.status === 'deactivated'
-                    ? 'destructive'
-                    : 'muted'
+                  : sub.status === 'suspended'
+                    ? 'warning'
+                    : sub.status === 'deactivated'
+                      ? 'destructive'
+                      : 'muted'
             }
           >
             local · {sub.status}
@@ -425,16 +461,41 @@ export default function SubDetail() {
                   Владелец, тариф, статус, ключ доступа
                 </CardDescription>
               </div>
-              {sub.status !== 'deactivated' && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setDeactOpen(true)}
-                >
-                  <Ban className="h-4 w-4" />
-                  Деактивировать
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {sub.status === 'active' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setStopOpen(true)}
+                    title="Обратимая пауза: NorthLine /stop"
+                  >
+                    <PauseCircle className="h-4 w-4" />
+                    Приостановить
+                  </Button>
+                )}
+                {sub.status === 'suspended' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setResumeOpen(true)}
+                    title="Снять паузу: NorthLine /resume"
+                  >
+                    <PlayCircle className="h-4 w-4" />
+                    Возобновить
+                  </Button>
+                )}
+                {sub.status !== 'deactivated' && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setDeactOpen(true)}
+                    title="Полное удаление у провайдера, остаток возвращается реселлеру. Необратимо."
+                  >
+                    <Ban className="h-4 w-4" />
+                    Деактивировать
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -626,8 +687,11 @@ export default function SubDetail() {
           <DialogHeader>
             <DialogTitle>Деактивировать ключ</DialogTitle>
             <DialogDescription>
-              Юзеру отправится уведомление с указанной причиной. NorthLine.deactivate_key
-              будет вызван немедленно.
+              <strong>Необратимо.</strong> Будет вызван NorthLine{' '}
+              <code>POST /keys/{'{id}'}/delete</code> — провайдер сразу снимет ключ,
+              остаток баланса вернётся реселлеру. Юзеру отправится уведомление с
+              указанной причиной. Чтобы временно отключить — используйте{' '}
+              «Приостановить».
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -658,6 +722,81 @@ export default function SubDetail() {
                 <Loader2 className="h-4 w-4 animate-spin" />
               )}
               Деактивировать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Stop dialog */}
+      <Dialog open={stopOpen} onOpenChange={setStopOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Приостановить подписку</DialogTitle>
+            <DialogDescription>
+              Обратимая пауза: NorthLine <code>POST /keys/{'{id}'}/stop</code>.
+              Юзер не сможет подключиться, но <strong>срок действия продолжит
+              тикать</strong>. Можно снять паузу через «Возобновить».
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="stop-reason">Причина</Label>
+            <Textarea
+              id="stop-reason"
+              rows={3}
+              value={stopReason}
+              onChange={(e) => setStopReason(e.target.value)}
+              placeholder="Например: подозрение на share, расследование…"
+              disabled={stopMutation.isPending}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setStopOpen(false)}
+              disabled={stopMutation.isPending}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={() => stopMutation.mutate()}
+              disabled={stopMutation.isPending || !stopReason.trim()}
+            >
+              {stopMutation.isPending && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+              Приостановить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resume confirm */}
+      <Dialog open={resumeOpen} onOpenChange={setResumeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Возобновить подписку?</DialogTitle>
+            <DialogDescription>
+              NorthLine <code>POST /keys/{'{id}'}/resume</code> — ключ снова
+              начнёт принимать подключения. Юзеру отправится короткое
+              уведомление.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setResumeOpen(false)}
+              disabled={resumeMutation.isPending}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={() => resumeMutation.mutate()}
+              disabled={resumeMutation.isPending}
+            >
+              {resumeMutation.isPending && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+              Возобновить
             </Button>
           </DialogFooter>
         </DialogContent>

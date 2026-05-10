@@ -36,6 +36,7 @@ from app.core.logging import get_logger, get_trace_id
 from app.schemas.northline import (
     BrandingResponse,
     DeactivateResponse,
+    DeleteResponse,
     ExtendResponse,
     KeyInfo,
     KeyResponse,
@@ -43,6 +44,8 @@ from app.schemas.northline import (
     PriceQuote,
     ResellerPrices,
     ResellerProfile,
+    ResumeResponse,
+    StopResponse,
 )
 
 logger = get_logger("northline_client")
@@ -279,32 +282,103 @@ class NorthLineClient:
         )
         return ExtendResponse.model_validate(data)
 
+    async def delete_key(
+        self,
+        *,
+        subscription_id: str,
+        idempotency_key: str | None = None,
+    ) -> DeleteResponse:
+        """``POST /keys/{id}/delete`` — необратимо удалить подписку.
+
+        Провайдер сразу же отрубает ключ у клиента (V2RayTun перестаёт
+        получать конфиг), переводит запись в ``status="deleted"`` и
+        возвращает остаток списанных средств в ``refund_rub``.
+        Продлить или возобновить такую подписку уже нельзя.
+
+        ``idempotency_key`` опционален по спеке провайдера; передаём,
+        если хотим безопасно повторить запрос (admin retry).
+        """
+        body: dict[str, Any] = {"provider_key": self.provider_key}
+        if idempotency_key:
+            body["idempotency_key"] = idempotency_key
+        started = time.perf_counter()
+        data = await self._request(
+            "POST", f"/keys/{subscription_id}/delete", json_body=body
+        )
+        await self._tech_log(
+            "northline:delete_key",
+            started=started,
+            payload={
+                "subscription_id": subscription_id,
+                "refund_rub": data.get("refund_rub"),
+            },
+        )
+        return DeleteResponse.model_validate(data)
+
+    async def stop_key(
+        self,
+        *,
+        subscription_id: str,
+    ) -> StopResponse:
+        """``POST /keys/{id}/stop`` — приостановить подписку (обратимо).
+
+        Доступ отключается немедленно, но подписку можно возобновить
+        через :meth:`resume_key`. Срок ``expires_at`` при этом
+        не двигается — пока подписка стоит на паузе, время идёт.
+        """
+        body = {"provider_key": self.provider_key}
+        started = time.perf_counter()
+        data = await self._request(
+            "POST", f"/keys/{subscription_id}/stop", json_body=body
+        )
+        await self._tech_log(
+            "northline:stop_key",
+            started=started,
+            payload={"subscription_id": subscription_id},
+        )
+        return StopResponse.model_validate(data)
+
+    async def resume_key(
+        self,
+        *,
+        subscription_id: str,
+    ) -> ResumeResponse:
+        """``POST /keys/{id}/resume`` — возобновить приостановленную подписку.
+
+        Возвращает её в ``status="active"``. Срок ``expires_at`` остаётся
+        тем же, что и был на момент приостановки.
+        """
+        body = {"provider_key": self.provider_key}
+        started = time.perf_counter()
+        data = await self._request(
+            "POST", f"/keys/{subscription_id}/resume", json_body=body
+        )
+        await self._tech_log(
+            "northline:resume_key",
+            started=started,
+            payload={"subscription_id": subscription_id},
+        )
+        return ResumeResponse.model_validate(data)
+
+    # Legacy alias. Старый admin-flow звал ``deactivate_key`` (soft no-op).
+    # Теперь это полноценный delete у провайдера. Сохраняем имя на случай
+    # если где-то остался импорт из ботовых хендлеров / скриптов.
     async def deactivate_key(
         self,
         *,
         subscription_id: str,
-        reason: str,
+        reason: str,  # noqa: ARG002 — sticks around for legacy callers
+        idempotency_key: str | None = None,
     ) -> DeactivateResponse:
-        """Soft no-op: the reseller API has no deactivate endpoint.
+        """Deprecated alias for :meth:`delete_key`.
 
-        Subscriptions auto-expire on ``expires_at`` and the reseller side has
-        no way to forcibly retire one early. We keep this method on the client
-        so the admin "deactivate" action still works (it flips the local DB
-        status and notifies the user) — we just don't make an HTTP call to the
-        provider.
+        Параметр ``reason`` теперь ничего не делает на стороне провайдера
+        (мы сохраняем его в БД отдельно). Оставлен в сигнатуре, чтобы
+        не ломать старых вызывающих.
         """
-        from datetime import UTC, datetime
-
-        logger.info(
-            "northline_deactivate_local_only",
+        return await self.delete_key(
             subscription_id=subscription_id,
-            reason=reason,
-            note="provider has no deactivate endpoint; DB-only change",
-        )
-        return DeactivateResponse(
-            ok=True,
-            subscription_id=subscription_id,
-            deactivated_at=datetime.now(tz=UTC),
+            idempotency_key=idempotency_key,
         )
 
     async def get_key(self, *, subscription_id: str) -> KeyInfo:

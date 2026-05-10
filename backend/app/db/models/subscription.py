@@ -22,7 +22,13 @@ from app.db.base import Base, BigIntPK, TimestampMixin
 SUB_STATUS_PENDING = "pending"
 SUB_STATUS_ACTIVE = "active"
 SUB_STATUS_EXPIRED = "expired"
+# Necrotic terminal status: NorthLine ``POST /keys/{id}/delete`` отработал,
+# ключ необратимо снят у провайдера. Имя «deactivated» оставлено
+# для обратной совместимости с админ-фильтрами и существующими записями.
 SUB_STATUS_DEACTIVATED = "deactivated"
+# Reversible pause: provider ``/stop`` отработал, юзер не может подключиться,
+# но подписка ждёт ``/resume``. Срок ``expires_at`` всё ещё тикает.
+SUB_STATUS_SUSPENDED = "suspended"
 SUB_STATUS_FAILED = "failed"
 
 SUB_STATUSES = frozenset(
@@ -31,6 +37,7 @@ SUB_STATUSES = frozenset(
         SUB_STATUS_ACTIVE,
         SUB_STATUS_EXPIRED,
         SUB_STATUS_DEACTIVATED,
+        SUB_STATUS_SUSPENDED,
         SUB_STATUS_FAILED,
     }
 )

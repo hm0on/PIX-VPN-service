@@ -201,7 +201,7 @@ export interface SubscriptionDevice {
  * key, independent of our local ``status``. Surfaced in /info to let ops
  * eyeball drift before reconcile-cron runs.
  */
-export type ProviderSubStatus = 'active' | 'suspended' | 'expired';
+export type ProviderSubStatus = 'active' | 'suspended' | 'expired' | 'deleted';
 
 export interface SubscriptionInfo {
   provider_status: ProviderSubStatus | null;
@@ -219,6 +219,35 @@ export interface SubscriptionInfo {
 
 export interface DeactivateRequest {
   reason: string;
+}
+
+/**
+ * Backend response for ``POST /admin/subscriptions/{id}/deactivate``.
+ * Includes the optional ``refund_rub`` returned by NorthLine's
+ * ``POST /keys/{id}/delete``.
+ */
+export interface DeactivateResponse {
+  id: number;
+  status: string;
+  deactivated_at: string | null;
+  deactivation_reason: string | null;
+  refund_rub: number | null;
+}
+
+export interface StopRequest {
+  reason: string;
+}
+
+export interface StopResponse {
+  id: number;
+  status: string;
+  suspended_at: string | null;
+  reason: string | null;
+}
+
+export interface ResumeResponse {
+  id: number;
+  status: string;
 }
 
 export interface SubscriptionBrandingRequest {
