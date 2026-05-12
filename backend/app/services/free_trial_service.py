@@ -35,7 +35,10 @@ from app.services.northline_client import NorthLineClient
 logger = get_logger("free_trial_service")
 
 FREE_TRIAL_DEFAULT_DAYS = 3
-FREE_TRIAL_DEFAULT_DEVICES = 3
+# Fallback when ``tariff.devices`` is somehow unset. The FREE tariff seed
+# carries the authoritative number (currently 1); historically this was 3
+# and the constant was hardcoded above the tariff lookup, ignoring the row.
+FREE_TRIAL_DEFAULT_DEVICES = 1
 
 
 class FreeTrialService:
@@ -75,8 +78,11 @@ class FreeTrialService:
             raise TariffNotFoundError("FREE tariff not configured")
 
         days = tariff.free_trial_days or FREE_TRIAL_DEFAULT_DAYS
-        # Spec: free trial = 3 devices regardless of tariff.devices field.
-        devices = FREE_TRIAL_DEFAULT_DEVICES
+        # Take ``devices`` from the FREE tariff row so ops can tune the
+        # trial config from the admin panel (or via seeds.py) without a
+        # code change. Fallback to the legacy 1-device default if the row
+        # is somehow missing the value.
+        devices = int(tariff.devices) if tariff.devices else FREE_TRIAL_DEFAULT_DEVICES
         idempotency_key = str(uuid.uuid4())
 
         sub = await self.repo.create(
