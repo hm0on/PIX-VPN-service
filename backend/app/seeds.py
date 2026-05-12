@@ -34,6 +34,9 @@ TARIFFS_DATA: list[dict[str, Any]] = [
         "sort_order": 0,
         "is_free_trial": True,
         "free_trial_days": 3,
+        # FREE-триал выдаётся без LTE add-on'а — экономим реселлер-балл.
+        # Модель Tariff по умолчанию ставит 35 GB; явный 0 переопределяет.
+        "lte_gb_per_month": 0,
         "durations": [],
     },
     {
@@ -311,7 +314,7 @@ DEFAULT_TEXTS: list[dict[str, str]] = [
         "key": "promo_discount_applied",
         "value_html": (
             "<b>✅ Промокод применён</b>\n\n"
-            "Скидка <b>{percent}%</b>. Итоговая сумма: <b>{total} ₽</b>."
+            "Скидка <b>{percent}%</b>. Итоговая сумма: <b>{amount} ₽</b>."
         ),
         "description": "Промокод-скидка применён к выбранной длительности.",
     },
@@ -625,7 +628,7 @@ async def seed_tariffs(session: AsyncSession) -> None:
         tariff = existing.scalar_one_or_none()
 
         if tariff is None:
-            tariff = Tariff(
+            tariff_kwargs: dict[str, Any] = dict(
                 code=data["code"],
                 name=data["name"],
                 description_html=data.get("description_html"),
@@ -635,6 +638,11 @@ async def seed_tariffs(session: AsyncSession) -> None:
                 is_free_trial=data.get("is_free_trial", False),
                 free_trial_days=data.get("free_trial_days"),
             )
+            # Only override the model-level default (35) when the seed
+            # explicitly opts out — keeps the migration story simple.
+            if "lte_gb_per_month" in data:
+                tariff_kwargs["lte_gb_per_month"] = data["lte_gb_per_month"]
+            tariff = Tariff(**tariff_kwargs)
             session.add(tariff)
             await session.flush()
             logger.info("tariff_seed_created", code=tariff.code)

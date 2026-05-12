@@ -16,6 +16,11 @@ class PurchaseStartRequest(BaseModel):
     tariff_id: int
     duration_id: int
     provider: PaymentProvider
+    # Validated discount promo id (from POST /promo/apply). When present,
+    # backend recomputes the final amount with ``promo.value`` percent
+    # discount and stamps the promo meta into the Payment row so the
+    # webhook can record a ``promo_activation``.
+    promo_id: int | None = None
 
 
 class PurchaseStartResponse(BaseModel):

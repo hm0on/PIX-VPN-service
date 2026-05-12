@@ -34,6 +34,7 @@ async def purchase_with_balance(
         user=user,
         tariff_id=payload.tariff_id,
         duration_id=payload.duration_id,
+        promo_id=payload.promo_id,
     )
     return PurchaseWithBalanceResponse(
         subscription=SubscriptionResponse.model_validate(sub),

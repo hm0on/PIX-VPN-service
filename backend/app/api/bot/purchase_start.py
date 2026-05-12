@@ -30,6 +30,7 @@ async def purchase_start(
         tariff_id=payload.tariff_id,
         duration_id=payload.duration_id,
         provider=payload.provider,
+        promo_id=payload.promo_id,
     )
     await session.commit()
     return PurchaseStartResponse(

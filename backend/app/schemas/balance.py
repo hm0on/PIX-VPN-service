@@ -15,6 +15,11 @@ class PurchaseWithBalanceRequest(BaseModel):
     tg_id: int
     tariff_id: int
     duration_id: int
+    # Validated discount promo id. Same semantics as in
+    # ``PurchaseStartRequest`` — backend applies the discount to the price
+    # debited from balance and records a ``promo_activation`` on the spot
+    # (balance-paid subscriptions are paid synchronously, no webhook).
+    promo_id: int | None = None
 
 
 class PurchaseWithBalanceResponse(BaseModel):

@@ -141,6 +141,7 @@ class PaymentService:
         tariff_id: int,
         duration_id: int,
         provider: str,
+        promo_id: int | None = None,
     ) -> dict[str, Any]:
         models = _models()
         Tariff = models["Tariff"]
@@ -172,7 +173,46 @@ class PaymentService:
                 error_code="duration_not_found",
             )
 
-        amount_kopecks = int(duration.price_kopecks)
+        original_amount_kopecks = int(duration.price_kopecks)
+        amount_kopecks = original_amount_kopecks
+
+        # ----- Discount promo (optional) -----
+        # The bot validates the code via /promo/apply, gets back ``promo_id``,
+        # then passes it here. We re-lookup the promo so we never trust an
+        # arbitrary percent from the client. We do NOT bump
+        # ``current_activations`` here — that happens in
+        # ``_record_promo_activation_safe`` once the webhook flips us to paid.
+        promo_meta: dict[str, Any] = {}
+        if promo_id is not None and promo_service is not None:
+            try:
+                from app.db.models.promo_code import (  # noqa: WPS433
+                    PROMO_TYPE_DISCOUNT_PERCENT,
+                    PromoCode,
+                )
+
+                promo_row = (
+                    await self.session.execute(
+                        select(PromoCode).where(PromoCode.id == int(promo_id))
+                    )
+                ).scalar_one_or_none()
+                if promo_row is not None and promo_row.type == PROMO_TYPE_DISCOUNT_PERCENT:
+                    percent = int(promo_row.value)
+                    amount_kopecks = promo_service.compute_discounted_price(
+                        original_amount_kopecks, percent
+                    )
+                    promo_meta = {
+                        "promo_id": int(promo_row.id),
+                        "promo_type": "discount_percent",
+                        "discount_percent": percent,
+                        "original_amount_kopecks": original_amount_kopecks,
+                    }
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "promo_discount_lookup_failed",
+                    promo_id=promo_id,
+                    user_id=user_id,
+                    error=str(e),
+                )
 
         # Create Subscription(pending).
         sub = Subscription(
@@ -196,7 +236,7 @@ class PaymentService:
             amount_kopecks=amount_kopecks,
             currency="RUB",
             status="pending",
-            meta={},
+            meta=dict(promo_meta),
         )
         self.session.add(payment)
         await self.session.flush()
@@ -227,6 +267,7 @@ class PaymentService:
 
         payment.external_id = invoice.external_id
         payment.meta = {
+            **promo_meta,
             "payment_url": invoice.payment_url,
             "provider_response": invoice.raw,
         }

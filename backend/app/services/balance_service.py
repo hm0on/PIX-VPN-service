@@ -131,6 +131,7 @@ class BalanceService:
         user: User,
         tariff_id: int,
         duration_id: int,
+        promo_id: int | None = None,
     ) -> tuple[Subscription, int, int]:
         """Atomic purchase-with-balance flow.
 
@@ -151,7 +152,48 @@ class BalanceService:
             tariff_id=tariff_id, duration_id=duration_id
         )
 
-        price = int(duration.price_kopecks)
+        original_price = int(duration.price_kopecks)
+        price = original_price
+
+        # ----- Discount promo (optional) -----
+        # Same shape as in payment_service.create_subscription_payment.
+        # Balance-paid purchases settle synchronously here, so we also
+        # record the activation in-flight (no webhook later).
+        promo_meta: dict[str, object] = {}
+        applied_promo_id: int | None = None
+        applied_percent: int | None = None
+        if promo_id is not None:
+            try:
+                from app.db.models.promo_code import (  # noqa: WPS433
+                    PROMO_TYPE_DISCOUNT_PERCENT,
+                    PromoCode,
+                )
+                from app.services import promo_service as _promo_svc  # noqa: WPS433
+
+                promo_row = (
+                    await self.session.execute(
+                        select(PromoCode).where(PromoCode.id == int(promo_id))
+                    )
+                ).scalar_one_or_none()
+                if promo_row is not None and promo_row.type == PROMO_TYPE_DISCOUNT_PERCENT:
+                    applied_percent = int(promo_row.value)
+                    price = _promo_svc.compute_discounted_price(
+                        original_price, applied_percent
+                    )
+                    applied_promo_id = int(promo_row.id)
+                    promo_meta = {
+                        "promo_id": applied_promo_id,
+                        "promo_type": "discount_percent",
+                        "discount_percent": applied_percent,
+                        "original_amount_kopecks": original_price,
+                    }
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "balance_promo_discount_lookup_failed",
+                    promo_id=promo_id,
+                    user_id=user.id,
+                    error=str(e),
+                )
 
         # ----- Atomic block: lock user, debit, create payment + pending subscription -----
         locked_user = await self._lock_user(user.id)
@@ -188,7 +230,28 @@ class BalanceService:
             currency="RUB",
             status=PAYMENT_STATUS_PAID,
             paid_at=datetime.now(tz=timezone.utc),
+            meta=dict(promo_meta) if promo_meta else {},
         )
+
+        # Balance-paid → settle promo activation synchronously (no webhook).
+        if applied_promo_id is not None and applied_percent is not None:
+            try:
+                from app.services.promo_service import PromoService  # noqa: WPS433
+
+                discount_kopecks = max(0, original_price - price)
+                await PromoService(self.session).record_discount_activation(
+                    promo_id=applied_promo_id,
+                    user_id=locked_user.id,
+                    payment_id=payment.id,
+                    discount_kopecks=discount_kopecks,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "balance_promo_activation_failed",
+                    promo_id=applied_promo_id,
+                    payment_id=payment.id,
+                    error=str(e),
+                )
 
         await self.bt_repo.create(
             user_id=locked_user.id,
