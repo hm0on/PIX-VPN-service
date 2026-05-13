@@ -449,16 +449,6 @@ DEFAULT_TEXTS: list[dict[str, str]] = [
             "одним нажатием без перехода в каталог."
         ),
     },
-    {
-        "key": "btn.subscription.import",
-        "value_html": "📲 Импортировать",
-        "description": (
-            "Кнопка на экране выдачи ключа (триал + покупка + продление). "
-            "URL подставляется автоматически из key_url подписки — "
-            "открывает её в VPN-клиенте через системный intent. "
-            "Custom-emoji id указан в bot/app/keyboards/catalog.py."
-        ),
-    },
     # ---------- Stage 3: subscription extension ----------
     {
         "key": "subscription_extended",
