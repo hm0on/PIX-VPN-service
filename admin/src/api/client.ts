@@ -26,8 +26,61 @@ apiClient.interceptors.request.use((reqConfig: InternalAxiosRequestConfig) => {
   return reqConfig;
 });
 
+/**
+ * Normalise the backend's flat list-response shape into the meta-wrapped
+ * shape every admin page (and every type in ``types/api.ts``) expects.
+ *
+ * Backend returns ``{items, total, page, page_size}`` (see
+ * ``AdminUsersPage`` / ``AdminSubsPage`` / etc.). The frontend type
+ * ``Page<T>`` is ``{items, meta: {total, page, per_page, pages}}``.
+ *
+ * Without this adapter, every paginated page renders the first batch
+ * (because ``items`` happens to land on the right key) but then hides
+ * the ``<Pagination>`` block because ``meta`` is undefined — which is
+ * exactly the symptom that prompted this fix: 50 users visible, no
+ * way to reach the 51st.
+ *
+ * Triggers only when the response body looks like a list page (has
+ * ``items`` array + ``total`` number) and lacks a ``meta`` field. Any
+ * other shape (single User, raw array endpoints, etc.) is passed
+ * through untouched.
+ */
+function adaptListResponse(data: unknown): unknown {
+  if (
+    data &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    Array.isArray((data as Record<string, unknown>).items) &&
+    typeof (data as Record<string, unknown>).total === 'number' &&
+    (data as Record<string, unknown>).meta === undefined
+  ) {
+    const flat = data as {
+      items: unknown[];
+      total: number;
+      page?: number;
+      page_size?: number;
+    };
+    const page = flat.page ?? 1;
+    const perPage = flat.page_size ?? flat.items.length || 1;
+    const pages = perPage > 0 ? Math.max(1, Math.ceil(flat.total / perPage)) : 1;
+    return {
+      items: flat.items,
+      meta: {
+        total: flat.total,
+        page,
+        per_page: perPage,
+        pages,
+      },
+    };
+  }
+  return data;
+}
+
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    response.data = adaptListResponse(response.data);
+    return response;
+  },
   (error: AxiosError) => {
     const status = error.response?.status;
     if (status === 401) {
