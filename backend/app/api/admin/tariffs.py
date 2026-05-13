@@ -69,6 +69,7 @@ async def create_tariff(
         is_active=payload.is_active,
         is_free_trial=payload.is_free_trial,
         free_trial_days=payload.free_trial_days,
+        is_unlimited_traffic=payload.is_unlimited_traffic,
     )
     # Conversion-pack 2026-05-13: traffic_gb_per_month + lte_gb_per_month
     # передаются только если админ их указал — иначе остаются дефолты
@@ -125,6 +126,7 @@ async def patch_tariff(
         "free_trial_days",
         "traffic_gb_per_month",
         "lte_gb_per_month",
+        "is_unlimited_traffic",
     ):
         new_val = getattr(payload, field)
         if new_val is not None:

@@ -27,4 +27,9 @@ class TariffWithDurationsSchema(ORMModel):
     # тарифа (NULL = безлимит). Не enforce'ится NorthLine'ом, только UI.
     traffic_gb_per_month: int | None = None
     lte_gb_per_month: int | None = None
+    # 2026-05-13 (post-conversion-pack): передаётся в NorthLine при
+    # выпуске ключа. TRUE — безлимит, FALSE — провайдерский дефолт
+    # (1000 GB / устройство / 30 дней). Бот не использует это поле для
+    # рендера — копия в ``description_html``.
+    is_unlimited_traffic: bool = False
     durations: list[TariffDurationSchema]

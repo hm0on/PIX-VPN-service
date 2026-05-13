@@ -39,12 +39,23 @@ class Tariff(IntPK, Base):
         Integer, nullable=False, server_default="35", default=35
     )
     # «Обычный» трафик, GB/мес. NorthLine не принимает hard-cap для
-    # non-LTE (только ``unlimited_traffic`` boolean), поэтому значение
-    # рендерится в UI/seeds-текстах, на провайдер не передаётся. Для
-    # FREE-trial — 50 (декларируемый), для paid тарифов сейчас NULL
-    # (фактический потолок NorthLine = 1 ТБ/устройство по умолчанию).
+    # non-LTE (только ``unlimited_traffic`` boolean — см. поле ниже),
+    # поэтому это поле рендерится только в UI/seeds-текстах, на
+    # провайдер не передаётся. Для FREE-trial — 50 (декларируемый),
+    # для paid тарифов сейчас NULL.
     traffic_gb_per_month: Mapped[int | None] = mapped_column(
         Integer, nullable=True
+    )
+    # Передаётся в ``POST /keys`` как ``unlimited_traffic`` (см.
+    # NorthLineClient.create_key). Если False — провайдер выдаст
+    # дефолтные 1000 GB / устройство / 30 дней (масштабируется).
+    # На стороне провайдера TRUE даёт +50% к базовой цене ключа.
+    # Backfill 0018: все 4 публичных тарифа = TRUE (мы маркетим
+    # безлимит в карточках). Кастомные тарифы могут выставить FALSE,
+    # если хочется явный лимит — но тогда квота назначается
+    # провайдером, наш UI её не контролирует.
+    is_unlimited_traffic: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
     )
 
     durations: Mapped[list["TariffDuration"]] = relationship(

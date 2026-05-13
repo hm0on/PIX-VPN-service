@@ -612,10 +612,13 @@ class PaymentService:
                     provider_key=settings.northline_provider_key or "",
                     test_mode=bool(settings.northline_test_mode),
                 )
-            # Pull LTE add-on size from the tariff row. New tariffs (and
-            # all the legacy ones backfilled by migration 0012) carry 35GB
-            # by default; custom tariffs may store their own value.
+            # Pull LTE add-on size + unlimited-traffic flag from the tariff
+            # row. New tariffs (and all the legacy ones backfilled by
+            # migration 0012) carry 35GB LTE by default; ``is_unlimited_traffic``
+            # is True for all public tariffs after 0018 (matches marketing
+            # copy — карточка тарифа обещает «Безлимитный трафик»).
             tariff_lte_gb: int | None = None
+            tariff_unlimited: bool | None = None
             try:
                 Tariff = models["Tariff"]
                 if Tariff is not None and sub.tariff_id:
@@ -628,16 +631,23 @@ class PaymentService:
                         tariff_lte_gb = getattr(
                             tariff_row, "lte_gb_per_month", None
                         )
+                        tariff_unlimited = getattr(
+                            tariff_row, "is_unlimited_traffic", None
+                        )
             except Exception:  # noqa: BLE001
                 # Don't block key issuing on a tariff lookup hiccup — worst
                 # case we issue without LTE, which is recoverable.
                 tariff_lte_gb = None
+                tariff_unlimited = None
 
             key_response = await northline_client.create_key(
                 days=sub.days,
                 devices=sub.devices,
                 idempotency_key=idempotency_key,
                 lte_gb=tariff_lte_gb,
+                unlimited_traffic=(
+                    True if tariff_unlimited else None
+                ),
                 metadata={
                     "user_id": payment.user_id,
                     "subscription_id": sub.id,

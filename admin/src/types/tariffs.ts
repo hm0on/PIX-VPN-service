@@ -21,6 +21,10 @@ export interface Tariff {
   // (NorthLine не enforce'ит). Отображается в карточке тарифа в боте.
   traffic_gb_per_month?: number | null;
   lte_gb_per_month?: number | null;
+  // 2026-05-13 (post 0018): передаётся NorthLine'у как
+  // ``unlimited_traffic``. TRUE — безлимит; FALSE — провайдерский
+  // дефолт 1000 GB/устройство/30 дней. Все 4 публичных тарифа = TRUE.
+  is_unlimited_traffic?: boolean;
   durations: TariffDuration[];
   durations_count?: number;
   created_at?: string;
@@ -38,6 +42,7 @@ export interface TariffCreatePayload {
   free_trial_days?: number | null;
   traffic_gb_per_month?: number | null;
   lte_gb_per_month?: number | null;
+  is_unlimited_traffic?: boolean;
 }
 
 export interface TariffUpdatePayload {
@@ -50,6 +55,7 @@ export interface TariffUpdatePayload {
   free_trial_days?: number | null;
   traffic_gb_per_month?: number | null;
   lte_gb_per_month?: number | null;
+  is_unlimited_traffic?: boolean;
 }
 
 export interface TariffDurationPayload {

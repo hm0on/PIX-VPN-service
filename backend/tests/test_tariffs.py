@@ -24,6 +24,10 @@ async def test_list_tariffs_after_seed(client, auth_headers, seed_db):  # noqa: 
     assert free["is_free_trial"] is True
     assert free["free_trial_days"] == 5
     assert free["durations"] == []
+    # 2026-05-13: все 4 публичных тарифа выдают безлимит NorthLine'у.
+    for code in ("free", "basic", "plus", "max"):
+        tariff = next(t for t in body if t["code"] == code)
+        assert tariff["is_unlimited_traffic"] is True, code
 
     # Paid tariffs have 4 durations sorted by days
     basic = next(t for t in body if t["code"] == "basic")

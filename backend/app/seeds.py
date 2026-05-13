@@ -47,6 +47,10 @@ TARIFFS_DATA: list[dict[str, Any]] = [
         # FREE-триал выдаётся без LTE add-on'а — экономим реселлер-балл.
         # Модель Tariff по умолчанию ставит 35 GB; явный 0 переопределяет.
         "lte_gb_per_month": 0,
+        # 2026-05-13: безлимит обычного VPN-трафика передаём в
+        # NorthLine как ``unlimited_traffic=true`` (см. миграция 0018).
+        # Без этого провайдер выдавал ~334 GB на 5дн/2устр.
+        "is_unlimited_traffic": True,
         "durations": [],
     },
     # Conversion-pack 2026-05-13: пересмотр устройств/трафика по тарифам.
@@ -69,6 +73,7 @@ TARIFFS_DATA: list[dict[str, Any]] = [
         "sort_order": 10,
         "traffic_gb_per_month": None,  # безлимит (маркетинг)
         "lte_gb_per_month": 10,
+        "is_unlimited_traffic": True,
         "durations": [
             {"days": 30, "price_kopecks": 18900, "is_hot": False},
             {"days": 90, "price_kopecks": 45900, "is_hot": True},
@@ -87,6 +92,7 @@ TARIFFS_DATA: list[dict[str, Any]] = [
         "sort_order": 20,
         "traffic_gb_per_month": None,
         "lte_gb_per_month": 15,
+        "is_unlimited_traffic": True,
         "durations": [
             {"days": 30, "price_kopecks": 24900, "is_hot": False},
             {"days": 90, "price_kopecks": 64900, "is_hot": True},
@@ -105,6 +111,7 @@ TARIFFS_DATA: list[dict[str, Any]] = [
         "sort_order": 40,
         "traffic_gb_per_month": None,
         "lte_gb_per_month": 30,
+        "is_unlimited_traffic": True,
         "durations": [
             {"days": 30, "price_kopecks": 59900, "is_hot": False},
             {"days": 90, "price_kopecks": 149000, "is_hot": True},
@@ -726,11 +733,31 @@ async def seed_tariffs(session: AsyncSession) -> None:
                 tariff_kwargs["lte_gb_per_month"] = data["lte_gb_per_month"]
             if "traffic_gb_per_month" in data:
                 tariff_kwargs["traffic_gb_per_month"] = data["traffic_gb_per_month"]
+            if "is_unlimited_traffic" in data:
+                tariff_kwargs["is_unlimited_traffic"] = data["is_unlimited_traffic"]
             tariff = Tariff(**tariff_kwargs)
             session.add(tariff)
             await session.flush()
             logger.info("tariff_seed_created", code=tariff.code)
         else:
+            # 2026-05-13 (post 0018): is_unlimited_traffic форсируем
+            # на всех тарифах из seed-данных — это поле напрямую
+            # управляет тем, что мы отдаём в NorthLine (без него
+            # провайдер выдаёт дефолтные ~1ТБ/устр/30д). Админ-правка
+            # «выключить безлимит» допустима, но конфликтует с тем,
+            # что описано в карточке тарифа — сидер возвращает
+            # значение в TRUE на каждом прогоне.
+            if "is_unlimited_traffic" in data and (
+                tariff.is_unlimited_traffic != data["is_unlimited_traffic"]
+            ):
+                tariff.is_unlimited_traffic = data["is_unlimited_traffic"]
+                await session.flush()
+                logger.info(
+                    "tariff_seed_unlimited_traffic_fixup",
+                    code=tariff.code,
+                    is_unlimited_traffic=data["is_unlimited_traffic"],
+                )
+
             # Conversion-pack 2026-05-13: для FREE-тарифа надо протолкнуть
             # новые значения (5 дней / 2 устройства / безлимит трафика)
             # даже на существующую строку — иначе после деплоя старые

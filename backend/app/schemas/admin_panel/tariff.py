@@ -33,6 +33,10 @@ class AdminTariff(BaseModel):
     # лежит в отдельном поле ``lte_gb_per_month``.
     traffic_gb_per_month: int | None = None
     lte_gb_per_month: int | None = None
+    # 2026-05-13: реальный флаг, что мы передаём NorthLine'у в
+    # ``POST /keys → unlimited_traffic``. Если выключен — провайдер
+    # назначит дефолтные 1000 GB/устройство/30д (масштабируется).
+    is_unlimited_traffic: bool = False
     durations: list[AdminTariffDuration]
 
 
@@ -49,6 +53,7 @@ class AdminTariffCreate(BaseModel):
     free_trial_days: int | None = None
     traffic_gb_per_month: int | None = Field(default=None, ge=0)
     lte_gb_per_month: int | None = Field(default=None, ge=0)
+    is_unlimited_traffic: bool = False
 
 
 class AdminTariffPatch(BaseModel):
@@ -63,6 +68,7 @@ class AdminTariffPatch(BaseModel):
     free_trial_days: int | None = None
     traffic_gb_per_month: int | None = Field(default=None, ge=0)
     lte_gb_per_month: int | None = Field(default=None, ge=0)
+    is_unlimited_traffic: bool | None = None
 
 
 class AdminTariffDurationCreate(BaseModel):

@@ -126,6 +126,14 @@ class FreeTrialService:
                 # Free trial inherits the LTE bundle from the FREE tariff
                 # row (admin can set 0 if the trial should not include LTE).
                 lte_gb=getattr(tariff, "lte_gb_per_month", None),
+                # Unlimited VPN-traffic (migration 0018 — FREE = TRUE).
+                # Без этого NorthLine выдаёт ~334 GB для 2 устр × 5 дн
+                # (дефолт 1000 GB/устр/30д масштабируется по days/30).
+                unlimited_traffic=(
+                    True
+                    if getattr(tariff, "is_unlimited_traffic", False)
+                    else None
+                ),
                 metadata={
                     "user_tg_id": user.tg_id,
                     "internal_subscription_id": str(sub.id),

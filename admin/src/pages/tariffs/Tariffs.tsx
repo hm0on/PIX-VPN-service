@@ -62,6 +62,10 @@ const tariffSchema = z.object({
     .transform((v) => (v === '' ? null : v))
     .nullable()
     .default(null),
+  // 2026-05-13: критичный флаг — передаётся в NorthLine при выпуске
+  // ключа как ``unlimited_traffic``. Без него провайдер выдаёт
+  // дефолтные ~1ТБ/устр/30д.
+  is_unlimited_traffic: z.boolean().default(false),
 });
 
 type TariffFormValues = z.infer<typeof tariffSchema>;
@@ -197,6 +201,7 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
       // explicitly map the absent-value case to null instead of ''.
       traffic_gb_per_month: tariff?.traffic_gb_per_month ?? null,
       lte_gb_per_month: tariff?.lte_gb_per_month ?? null,
+      is_unlimited_traffic: tariff?.is_unlimited_traffic ?? false,
     },
   });
 
@@ -210,6 +215,7 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
       is_active: tariff?.is_active ?? true,
       traffic_gb_per_month: tariff?.traffic_gb_per_month ?? null,
       lte_gb_per_month: tariff?.lte_gb_per_month ?? null,
+      is_unlimited_traffic: tariff?.is_unlimited_traffic ?? false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tariff?.id]);
@@ -251,6 +257,7 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
         is_active: values.is_active,
         traffic_gb_per_month: values.traffic_gb_per_month,
         lte_gb_per_month: values.lte_gb_per_month,
+        is_unlimited_traffic: values.is_unlimited_traffic,
       });
     } else {
       updateMut.mutate({
@@ -263,10 +270,13 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
           is_active: values.is_active,
           traffic_gb_per_month: values.traffic_gb_per_month,
           lte_gb_per_month: values.lte_gb_per_month,
+          is_unlimited_traffic: values.is_unlimited_traffic,
         },
       });
     }
   };
+
+  const isUnlimitedTraffic = form.watch('is_unlimited_traffic');
 
   const isActive = form.watch('is_active');
   const desc = form.watch('description_html');
@@ -352,6 +362,26 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
           onCheckedChange={(v) => form.setValue('is_active', v, { shouldDirty: true })}
         />
         <Label className="cursor-pointer">Активен</Label>
+      </div>
+
+      {/* 2026-05-13: критичный флаг — без него NorthLine выдаёт
+          дефолтные ~1ТБ/устр/30д (для 2 устр × 5 дн ≈ 334 GB).
+          Все 4 публичных тарифа должны быть TRUE. */}
+      <div className="flex items-start gap-3">
+        <Switch
+          checked={isUnlimitedTraffic}
+          onCheckedChange={(v) =>
+            form.setValue('is_unlimited_traffic', v, { shouldDirty: true })
+          }
+        />
+        <div className="space-y-0.5">
+          <Label className="cursor-pointer">Безлимитный VPN-трафик</Label>
+          <p className="text-xs text-muted-foreground">
+            Передаётся в NorthLine как <code>unlimited_traffic</code>. +50%
+            к цене ключа на стороне провайдера. Без флага — дефолтные
+            ~1ТБ/устройство/30 дней.
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">

@@ -207,6 +207,7 @@ async def _reissue_one(  # noqa: PLR0913
         days = tariff.free_trial_days or 3
         devices = int(tariff.devices) or 1
         lte_gb = int(tariff.lte_gb_per_month) if tariff.lte_gb_per_month is not None else None
+        unlimited_traffic = bool(getattr(tariff, "is_unlimited_traffic", False))
 
         subs_repo = SubscriptionRepository(session)
         new_sub = await subs_repo.create(
@@ -231,6 +232,7 @@ async def _reissue_one(  # noqa: PLR0913
             devices=devices,
             idempotency_key=idempotency_key,
             lte_gb=lte_gb,
+            unlimited_traffic=True if unlimited_traffic else None,
             metadata={
                 "user_tg_id": user.tg_id,
                 "internal_subscription_id": str(new_sub_id),

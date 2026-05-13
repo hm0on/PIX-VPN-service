@@ -290,6 +290,17 @@ class BalanceService:
                 # LTE add-on size from the tariff (default 35GB for all
                 # public tariffs, set per-row via migration 0012).
                 lte_gb=getattr(tariff, "lte_gb_per_month", None),
+                # Unlimited VPN-traffic flag (migration 0018 — все
+                # публичные тарифы TRUE; без этого провайдер выдаёт
+                # дефолтные 1000 GB / устройство / 30 дней, а мы
+                # маркетим безлимит). ``None`` опускает поле в запросе,
+                # чтобы для legacy тарифов с FALSE не отправлять явный
+                # негатив (получают провайдерский дефолт).
+                unlimited_traffic=(
+                    True
+                    if getattr(tariff, "is_unlimited_traffic", False)
+                    else None
+                ),
                 metadata={
                     "user_tg_id": locked_user.tg_id,
                     "internal_subscription_id": str(sub.id),
