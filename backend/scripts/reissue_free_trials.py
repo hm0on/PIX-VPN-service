@@ -69,6 +69,7 @@ from app.db.models.user import User
 from app.db.session import get_session_factory
 from app.repositories.outbox_repo import OutboxRepository
 from app.repositories.subscription_repo import SubscriptionRepository
+from app.services.northline_branding import build_subscription_branding
 from app.services.northline_client import NorthLineClient
 
 
@@ -208,6 +209,7 @@ async def _reissue_one(  # noqa: PLR0913
         devices = int(tariff.devices) or 1
         lte_gb = int(tariff.lte_gb_per_month) if tariff.lte_gb_per_month is not None else None
         unlimited_traffic = bool(getattr(tariff, "is_unlimited_traffic", False))
+        tariff_code = tariff.code
 
         subs_repo = SubscriptionRepository(session)
         new_sub = await subs_repo.create(
@@ -233,6 +235,11 @@ async def _reissue_one(  # noqa: PLR0913
             idempotency_key=idempotency_key,
             lte_gb=lte_gb,
             unlimited_traffic=True if unlimited_traffic else None,
+            # FREE reissue → "PIX VPN · TRIAL" в VPN-клиенте.
+            branding=build_subscription_branding(
+                tariff_code=tariff_code,
+                is_free_trial=True,
+            ),
             metadata={
                 "user_tg_id": user.tg_id,
                 "internal_subscription_id": str(new_sub_id),

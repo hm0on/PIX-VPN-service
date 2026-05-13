@@ -40,6 +40,7 @@ from app.db.models.user import User
 from app.repositories.balance_transaction_repo import BalanceTransactionRepository
 from app.repositories.payment_repo import PaymentRepository
 from app.repositories.subscription_repo import SubscriptionRepository
+from app.services.northline_branding import build_subscription_branding
 from app.services.northline_client import NorthLineClient
 from app.services.tariff_service import TariffService
 
@@ -300,6 +301,12 @@ class BalanceService:
                     True
                     if getattr(tariff, "is_unlimited_traffic", False)
                     else None
+                ),
+                # Per-key branding override: VPN-клиент покажет
+                # "PIX VPN · BASIC/PLUS/MAX" вместо общего "PIX VPN".
+                branding=build_subscription_branding(
+                    tariff_code=getattr(tariff, "code", None),
+                    is_free_trial=False,
                 ),
                 metadata={
                     "user_tg_id": locked_user.tg_id,

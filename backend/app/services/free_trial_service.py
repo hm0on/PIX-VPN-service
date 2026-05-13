@@ -35,6 +35,7 @@ from app.repositories.referral_repo import ReferralRepository
 from app.repositories.subscription_repo import SubscriptionRepository
 from app.repositories.user_repo import UserRepository
 from app.services import personal_promo_service
+from app.services.northline_branding import build_subscription_branding
 from app.services.northline_client import NorthLineClient
 
 logger = get_logger("free_trial_service")
@@ -133,6 +134,11 @@ class FreeTrialService:
                     True
                     if getattr(tariff, "is_unlimited_traffic", False)
                     else None
+                ),
+                # Per-key branding: VPN-клиент покажет "PIX VPN · TRIAL".
+                branding=build_subscription_branding(
+                    tariff_code=getattr(tariff, "code", None),
+                    is_free_trial=True,
                 ),
                 metadata={
                     "user_tg_id": user.tg_id,
