@@ -943,15 +943,31 @@ class PaymentService:
             "payment_id": payment_id,
             "key_url": key_url,
         }
+        # Conversion-pack 2026-05-13: рядом с «Как подключиться» теперь
+        # рисуем «Импортировать» — простой URL-button с ``key_url``,
+        # iOS/Android при наличии Happ/V2RayTun предложат открыть
+        # подписку в клиенте.
+        keyboard: list[list[dict[str, Any]]] = []
         if settings.howto_connect_url:
-            payload["inline_keyboard"] = [
+            keyboard.append(
                 [
                     {
                         "text": "Как подключиться",
                         "url": settings.howto_connect_url,
                     }
                 ]
-            ]
+            )
+        if key_url:
+            keyboard.append(
+                [
+                    {
+                        "text": "📲 Импортировать",
+                        "url": key_url,
+                    }
+                ]
+            )
+        if keyboard:
+            payload["inline_keyboard"] = keyboard
         await outbox_service.enqueue_message(
             self.session,
             user_id=user_id,

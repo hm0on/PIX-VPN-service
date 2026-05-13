@@ -109,9 +109,10 @@ async def activate_free_trial(
         return
 
     sub_data: dict[str, Any] = result.get("subscription") or {}
+    sub_key_url = sub_data.get("key_url", "") or ""
     entry = await texts.get_entry(
         "key_issued_free_trial",
-        key_url=sub_data.get("key_url", ""),
+        key_url=sub_key_url,
         # Defaults bumped 3→5 days / 1→2 devices in conversion-pack
         # 2026-05-13 to match the new FREE-tariff seed.
         days=sub_data.get("days", 5),
@@ -122,7 +123,9 @@ async def activate_free_trial(
         callback,
         entry,
         reply_markup=await key_issued_kb(
-            settings.HOWTO_CONNECT_URL, text_service=texts
+            settings.HOWTO_CONNECT_URL,
+            text_service=texts,
+            key_url=sub_key_url,
         ),
     )
     await bot_log(

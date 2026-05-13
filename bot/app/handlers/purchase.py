@@ -184,7 +184,9 @@ async def _pay_with_balance(
         callback,
         entry,
         reply_markup=await key_issued_kb(
-            settings.HOWTO_CONNECT_URL, text_service=texts
+            settings.HOWTO_CONNECT_URL,
+            text_service=texts,
+            key_url=key_url,
         ),
     )
     await state.clear()

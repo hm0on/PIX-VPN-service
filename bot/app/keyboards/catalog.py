@@ -273,17 +273,34 @@ async def payment_link_kb(
     )
 
 
+#: Default custom-emoji id для кнопки «Импортировать» — используется,
+#: когда у text-row ``btn.subscription.import`` нет icon_custom_emoji_id
+#: в БД. Юзер выбрал этот id в задаче по conversion-pack 2026-05-13.
+_IMPORT_BTN_FALLBACK_EMOJI = "5257991477358763590"
+
+
 async def key_issued_kb(
-    howto_url: str | None, *, text_service: TextService
+    howto_url: str | None,
+    *,
+    text_service: TextService,
+    key_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     """Post-success keyboard shown to the user with the freshly issued key.
 
-    "Как подключиться" prefers the URL stored on the ``btn.subscription.howto``
-    text row (admin-edited) and falls back to ``howto_url`` (env). When neither
-    is set the row is omitted entirely — better no button than a dead one.
+    Layout (по сверху вниз):
+      1. «Как подключиться» — URL-кнопка из ``btn.subscription.howto`` /
+         ``howto_url``-env. Пропускается, если URL не задан.
+      2. «Импортировать» — URL-кнопка с ``key_url`` подписки. Открывает
+         подписочный URL у пользователя; iOS/Android при наличии Happ /
+         V2RayTun / etc. предложат «открыть в приложении». Пропускается,
+         если ``key_url`` пустой.
+      3. «В меню» — callback ``main_menu``.
     """
     howto_label, howto_icon, howto_db_url = await text_service.get_url_button(
         "btn.subscription.howto"
+    )
+    import_label, import_icon = await text_service.get_button(
+        "btn.subscription.import"
     )
     menu_label, menu_icon = await text_service.get_button("btn.common.to_menu")
 
@@ -300,6 +317,20 @@ async def key_issued_kb(
                     text=howto_label,
                     url=effective_howto_url,
                     **howto_extra,  # type: ignore[arg-type]
+                )
+            ]
+        )
+    # «Импортировать» ставим МЕЖДУ «Как подключиться» и «В меню». Если у
+    # подписки нет URL (теоретически — провайдер не вернул ключ) — кнопку
+    # просто не рисуем, чем выдавать кнопку с битым линком.
+    if key_url:
+        import_emoji = import_icon or _IMPORT_BTN_FALLBACK_EMOJI
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=import_label,
+                    url=key_url,
+                    icon_custom_emoji_id=import_emoji,
                 )
             ]
         )

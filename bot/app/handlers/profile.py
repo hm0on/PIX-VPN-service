@@ -754,7 +754,13 @@ async def cb_ext_pay(
             "subscription_extended", new_expires_at=_format_date(new_expires_at)
         )
         await safe_edit_or_answer(
-            callback, text, reply_markup=await key_issued_kb(settings.HOWTO_CONNECT_URL, text_service=texts)
+            callback,
+            text,
+            reply_markup=await key_issued_kb(
+                settings.HOWTO_CONNECT_URL,
+                text_service=texts,
+                key_url=key_url,
+            ),
         )
         await state.clear()
         await bot_log(
