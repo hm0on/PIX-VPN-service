@@ -118,24 +118,35 @@ async def _recent_dedup_hit(
     """Return True if an alert with the same ``dedup_key`` was enqueued
     within ``DEDUP_WINDOW``.
 
-    Postgres ``->>`` is sargable against the existing combined index well
-    enough — at our outbox volume (~hundreds/day) this is a sub-ms scan
-    against a small recent window filtered by ``send_after``.
+    Uses raw SQL with Postgres ``->>`` because ``Outbox.payload`` is
+    declared as the generic ``JSON`` type with a ``JSONB`` variant — on
+    the ORM column descriptor the ``.astext`` accessor isn't available
+    (it lives on the dialect-specific ``JSONB`` type only). At our
+    outbox volume the ``send_after`` btree narrows the scan to a few
+    dozen recent rows before the JSON match runs.
     """
-    from sqlalchemy import func, literal
+    from sqlalchemy import text
 
-    # Use ``send_after`` rather than ``created_at`` because the existing
-    # btree index covers it; both are written to ``now()`` on insert so
-    # the values are equivalent for our purposes.
-    cutoff = func.now() - literal(DEDUP_WINDOW)
-    stmt = (
-        select(Outbox.id)
-        .where(Outbox.send_after >= cutoff)
-        .where(Outbox.payload["dedup_key"].astext == dedup_key)
-        .where(Outbox.payload["kind"].astext == _PAYLOAD_KIND)
-        .limit(1)
+    stmt = text(
+        """
+        SELECT 1
+          FROM outbox
+         WHERE send_after >= NOW() - :window
+           AND payload->>'dedup_key' = :dedup_key
+           AND payload->>'kind' = :kind
+         LIMIT 1
+        """
     )
-    found = (await session.execute(stmt)).scalar_one_or_none()
+    found = (
+        await session.execute(
+            stmt,
+            {
+                "window": DEDUP_WINDOW,
+                "dedup_key": dedup_key,
+                "kind": _PAYLOAD_KIND,
+            },
+        )
+    ).scalar_one_or_none()
     return found is not None
 
 
