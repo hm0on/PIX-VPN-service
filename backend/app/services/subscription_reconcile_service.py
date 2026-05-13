@@ -45,6 +45,17 @@ from app.db.models.subscription import (
     SUB_STATUS_EXPIRED,
     Subscription,
 )
+from app.services.admin_alert_service import send_admin_alert
+
+# Circuit breaker: how many ``invalid_provider_key`` errors in a row trip
+# the abort. Picked at 3 because:
+#   - 1 is normal (a single deleted key in the wild).
+#   - 2 is suspicious but could still be a coincidence (two test rows).
+#   - 3+ in a row almost certainly means the provider bearer itself died
+#     (the failure mode that wiped 30 subs on 12-13 May 2026).
+# When tripped we abort the whole batch — better to leave a few possibly
+# stale rows for 6 hours than to lose 30+ live subs to a false positive.
+INVALID_KEY_BREAKER_THRESHOLD = 3
 
 if TYPE_CHECKING:
     from app.services.northline_client import NorthLineClient
@@ -132,6 +143,13 @@ async def reconcile_subscriptions(
 
     now = datetime.now(tz=timezone.utc)
 
+    # Circuit breaker counter. Increments on every consecutive
+    # ``invalid_provider_key`` / ``not_found`` and resets on any other
+    # outcome (successful check, network error, etc.). Crossing
+    # ``INVALID_KEY_BREAKER_THRESHOLD`` aborts the whole batch — see the
+    # constant for rationale.
+    consecutive_invalid_key = 0
+
     for sub in rows:
         provider_id = sub.provider_subscription_id
         if _is_test_subscription_id(provider_id):
@@ -153,6 +171,61 @@ async def reconcile_subscriptions(
                 "invalid_provider_key",
                 "not_found",
             }:
+                consecutive_invalid_key += 1
+
+                # CIRCUIT BREAKER: too many invalid_provider_key in a row
+                # smells like a provider bearer/auth outage (the failure
+                # mode that wiped 30 subs on 12-13 May 2026) rather than
+                # N genuinely deleted keys. Abort BEFORE mutating this
+                # row — commit nothing from this batch, alert the admin,
+                # let the next 6h tick retry once the operator has
+                # confirmed the bearer is healthy again.
+                if consecutive_invalid_key >= INVALID_KEY_BREAKER_THRESHOLD:
+                    await session.rollback()
+                    log.error(
+                        "reconcile_circuit_breaker_tripped",
+                        consecutive=consecutive_invalid_key,
+                        last_subscription_id=sub.id,
+                        last_error_code=exc.error_code,
+                    )
+                    # New session for the alert (we just rolled back the
+                    # caller's). Reuse the session factory from the bind.
+                    from app.db.session import get_session_factory
+
+                    factory = get_session_factory()
+                    async with factory() as alert_session:
+                        await send_admin_alert(
+                            alert_session,
+                            level="CRIT",
+                            summary=(
+                                "Reconcile aborted: "
+                                f"{consecutive_invalid_key} consecutive "
+                                "invalid_provider_key — provider bearer "
+                                "likely rotated/expired. NO subscriptions "
+                                "were modified in this batch."
+                            ),
+                            details={
+                                "consecutive": consecutive_invalid_key,
+                                "threshold": INVALID_KEY_BREAKER_THRESHOLD,
+                                "last_subscription_id": sub.id,
+                                "error_code": exc.error_code,
+                                "hint": (
+                                    "Check NORTHLINE_BEARER_TOKEN; rotate "
+                                    "via provider dashboard if needed."
+                                ),
+                            },
+                            dedup_key="reconcile:circuit_breaker",
+                        )
+                        await alert_session.commit()
+                    # Return a result reflecting that this batch was
+                    # cancelled. ``api_errors`` carries the count so the
+                    # caller's metrics aren't silently zero.
+                    result["api_errors"] = (
+                        result.get("api_errors", 0) + consecutive_invalid_key
+                    )
+                    result["flipped"] = 0  # nothing committed
+                    return result
+
                 sub.status = SUB_STATUS_DEACTIVATED
                 sub.deactivated_at = now
                 sub.deactivation_reason = (
@@ -175,6 +248,9 @@ async def reconcile_subscriptions(
                     },
                 )
                 continue
+            # Non-"invalid_provider_key" client error → reset counter
+            # (the breaker is specifically about provider-auth wipeouts).
+            consecutive_invalid_key = 0
             log.warning(
                 "reconcile_provider_client_error",
                 subscription_id=sub.id,
@@ -184,6 +260,9 @@ async def reconcile_subscriptions(
             continue
         except NorthLineUnavailableError as exc:
             # Transient — leave the row alone, next run will retry.
+            # Reset the breaker: an unavailable provider is a different
+            # failure mode than an auth wipeout.
+            consecutive_invalid_key = 0
             log.warning(
                 "reconcile_provider_unavailable",
                 subscription_id=sub.id,
@@ -191,6 +270,10 @@ async def reconcile_subscriptions(
             )
             result["api_errors"] += 1
             continue
+
+        # Any successful provider call clears the breaker counter — we
+        # only trip on a *consecutive* run of invalid_provider_key.
+        consecutive_invalid_key = 0
 
         # ----- Status drift -----
         provider_status = (info.status or "").lower()

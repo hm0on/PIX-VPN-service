@@ -92,7 +92,16 @@ async def business_log(
     message: str = "",
     context: dict[str, Any] | None = None,
 ) -> None:
-    """Persist a business log row to `logs` table."""
+    """Persist a business log row to `logs` table.
+
+    LEVEL_CRITICAL events additionally trigger a Telegram alert to the
+    admin (``settings.admin_tg_id``) via the existing outbox pipeline.
+    Wiring this into ``business_log`` itself means every current and
+    future critical site — payment failures, free-trial failures, balance
+    refund inconsistencies, etc. — gets an admin ping for free, without
+    touching the 7+ existing call sites. See
+    ``app.services.admin_alert_service`` for the alert plumbing.
+    """
     from app.db.models.log import Log
 
     row = Log(
@@ -113,6 +122,40 @@ async def business_log(
         message=message,
         context=context,
     )
+
+    if level >= LEVEL_CRITICAL:
+        # Local import to avoid an import cycle: admin_alert_service
+        # imports config + outbox model, both of which transitively
+        # depend on this module at startup. Lazy import keeps the
+        # dependency graph one-way.
+        from app.services.admin_alert_service import send_admin_alert
+
+        # Dedup by event name so a storm of identical criticals
+        # (e.g. 30 ``vpn_provider_failed_after_payment`` during a
+        # provider outage) collapses into a single Telegram ping per
+        # 10-minute window. Distinct event types still alert independently.
+        details: dict[str, Any] = {"event": event}
+        if user_id is not None:
+            details["user_id"] = user_id
+        if context:
+            # Promote a few interesting keys to the summary line; the
+            # full context is in the logs table for forensics anyway.
+            for key in (
+                "subscription_id",
+                "payment_id",
+                "provider_subscription_id",
+                "error_code",
+                "amount_kopecks",
+            ):
+                if key in context and context[key] is not None:
+                    details[key] = context[key]
+        await send_admin_alert(
+            session,
+            level="CRIT",
+            summary=message or event,
+            details=details,
+            dedup_key=f"business:{event}",
+        )
 
 
 async def tech_log(
