@@ -193,8 +193,10 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
       devices: tariff?.devices ?? 1,
       sort_order: tariff?.sort_order ?? 0,
       is_active: tariff?.is_active ?? true,
-      traffic_gb_per_month: tariff?.traffic_gb_per_month ?? '',
-      lte_gb_per_month: tariff?.lte_gb_per_month ?? '',
+      // Schema after .transform() resolves to `number | null` so we
+      // explicitly map the absent-value case to null instead of ''.
+      traffic_gb_per_month: tariff?.traffic_gb_per_month ?? null,
+      lte_gb_per_month: tariff?.lte_gb_per_month ?? null,
     },
   });
 
@@ -206,8 +208,8 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
       devices: tariff?.devices ?? 1,
       sort_order: tariff?.sort_order ?? 0,
       is_active: tariff?.is_active ?? true,
-      traffic_gb_per_month: tariff?.traffic_gb_per_month ?? '',
-      lte_gb_per_month: tariff?.lte_gb_per_month ?? '',
+      traffic_gb_per_month: tariff?.traffic_gb_per_month ?? null,
+      lte_gb_per_month: tariff?.lte_gb_per_month ?? null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tariff?.id]);
