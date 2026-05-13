@@ -39,7 +39,7 @@ without raising. The rest of the business logic stays portable.
 from __future__ import annotations
 
 import html as _html
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from sqlalchemy import select
@@ -124,14 +124,20 @@ async def _recent_dedup_hit(
     (it lives on the dialect-specific ``JSONB`` type only). At our
     outbox volume the ``send_after`` btree narrows the scan to a few
     dozen recent rows before the JSON match runs.
+
+    ``cutoff`` is computed in Python (not via ``NOW() - :interval``)
+    because asyncpg binds Python ``timedelta`` as ``interval`` *type*
+    and Postgres rejects ``timestamptz >= interval`` without an explicit
+    cast on one side. Passing a tz-aware ``datetime`` sidesteps that.
     """
     from sqlalchemy import text
 
+    cutoff = datetime.now(tz=timezone.utc) - DEDUP_WINDOW
     stmt = text(
         """
         SELECT 1
           FROM outbox
-         WHERE send_after >= NOW() - :window
+         WHERE send_after >= :cutoff
            AND payload->>'dedup_key' = :dedup_key
            AND payload->>'kind' = :kind
          LIMIT 1
@@ -141,7 +147,7 @@ async def _recent_dedup_hit(
         await session.execute(
             stmt,
             {
-                "window": DEDUP_WINDOW,
+                "cutoff": cutoff,
                 "dedup_key": dedup_key,
                 "kind": _PAYLOAD_KIND,
             },
@@ -180,14 +186,23 @@ async def send_admin_alert(
         return
 
     try:
-        if dedup_key and await _recent_dedup_hit(session, dedup_key=dedup_key):
-            log.debug(
-                "admin_alert_deduped",
-                dedup_key=dedup_key,
-                summary=summary,
-                level=level,
-            )
-            return
+        # SAVEPOINT around the dedup SELECT and the subsequent insert so
+        # a malformed query or any other quirk inside the alert plumbing
+        # can't poison the caller's outer transaction with an
+        # InFailedSQLTransactionError. ``session.begin_nested()`` issues
+        # ``SAVEPOINT … RELEASE`` automatically on success / ``ROLLBACK
+        # TO`` on exception.
+        async with session.begin_nested():
+            if dedup_key and await _recent_dedup_hit(
+                session, dedup_key=dedup_key
+            ):
+                log.debug(
+                    "admin_alert_deduped",
+                    dedup_key=dedup_key,
+                    summary=summary,
+                    level=level,
+                )
+                return
 
         # Resolve admin's internal user.id — outbox.user_id is a NOT NULL
         # FK to users.id with ON DELETE CASCADE, so we can't pass tg_id
