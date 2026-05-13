@@ -42,8 +42,12 @@ from app.repositories.referral_repo import ReferralRepository
 
 logger = get_logger("referral_service")
 
-REFERRAL_BONUS_KOPECKS = 10000  # 100 RUB
-REFERRAL_AUTO_DISCOUNT_PERCENT = 10
+REFERRAL_BONUS_KOPECKS = 7000  # 70 RUB — conversion-pack 2026-05-13
+# 15% автоскидка на первую покупку приглашённого. Текущая семантика
+# «пожизненная до первой paid» сохранена; в conversion-pack ещё
+# параллельно выдаётся персональный промокод 15% рефереру в момент
+# выдачи trial приглашённому (см. free_trial_service).
+REFERRAL_AUTO_DISCOUNT_PERCENT = 15
 
 
 @dataclass

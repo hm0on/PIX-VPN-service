@@ -100,6 +100,17 @@ async def create_promo(
 
     code = (payload.code or _generate_promo_code()).upper()
 
+    # Conversion-pack 2026-05-13: optional ``user_id`` binds the promo to a
+    # single user. Validate existence up-front so admins get a 400 instead
+    # of an opaque FK violation at flush-time.
+    if payload.user_id is not None:
+        target_user = await session.get(User, payload.user_id)
+        if target_user is None:
+            raise ValidationError(
+                f"User #{payload.user_id} not found",
+                error_code="promo_user_not_found",
+            )
+
     promo = PromoCode(
         code=code,
         type=payload.type,
@@ -110,6 +121,7 @@ async def create_promo(
         valid_until=payload.valid_until,
         is_active=payload.is_active,
         description=payload.description,
+        user_id=payload.user_id,
         created_by_admin_key_label=admin.label,
     )
     session.add(promo)

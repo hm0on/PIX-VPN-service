@@ -99,6 +99,15 @@ class PromoService:
         self._ensure_active_and_in_window(promo)
         self._ensure_total_capacity(promo)
         await self._ensure_per_user_capacity(promo, user)
+        # Персональные промокоды (см. conversion-pack 2026-05-13): если
+        # на промо стоит ``user_id`` — он работает только для этого
+        # юзера. Reason — общий ``not_for_this_user``; в боте рендерится
+        # тем же ``promo_not_found``, чтобы не палить чужой код.
+        if promo.user_id is not None and promo.user_id != user.id:
+            raise PromoCodeUnavailableError(
+                "Promo code is bound to another user",
+                reason="not_for_this_user",
+            )
 
         # 4. Apply.
         if promo.type == PROMO_TYPE_BALANCE:

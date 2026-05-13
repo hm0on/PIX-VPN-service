@@ -21,12 +21,17 @@ from app.db.base import Base, BigIntPK
 NOTIFICATION_EXPIRY_3D = "expiry_3d"
 NOTIFICATION_EXPIRY_1D = "expiry_1d"
 NOTIFICATION_EXPIRED = "expired"
+# Trial-only напоминание за 24ч до конца — отдельный kind, потому что
+# trial живёт 5 дней и попадал бы в окно "expiry_3d" одновременно с
+# выдачей. Не пересекаем с обычной expiry-логикой.
+NOTIFICATION_TRIAL_EXPIRING_24H = "trial_expiring_24h"
 
 NOTIFICATION_KINDS = frozenset(
     {
         NOTIFICATION_EXPIRY_3D,
         NOTIFICATION_EXPIRY_1D,
         NOTIFICATION_EXPIRED,
+        NOTIFICATION_TRIAL_EXPIRING_24H,
     }
 )
 

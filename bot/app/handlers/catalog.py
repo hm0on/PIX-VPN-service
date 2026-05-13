@@ -26,6 +26,7 @@ from app.handlers._common import (
     safe_edit_or_answer,
     safe_edit_or_send_media,
 )
+from app.handlers.free_trial import activate_free_trial
 from app.keyboards.catalog import (
     apply_discount,
     catalog_kb,
@@ -149,8 +150,10 @@ async def cb_tariff(
         return
 
     # ---- FREE-trial path ----
+    # Shared with the main_menu "🎁 5 дней бесплатно" button (see
+    # ``handlers/free_trial.py``). Same activation flow either way.
     if tariff.get("is_free_trial"):
-        await _handle_free_trial(
+        await activate_free_trial(
             callback,
             api=api,
             texts=texts,
@@ -173,109 +176,6 @@ async def cb_tariff(
     durations = tariff.get("durations") or []
     await safe_edit_or_send_media(
         callback, entry, reply_markup=tariff_durations_kb(tariff_id, durations)
-    )
-
-
-async def _handle_free_trial(
-    callback: CallbackQuery,
-    *,
-    api: BackendClient,
-    texts: TextService,
-    settings: Settings,
-    tg_id: int,
-    user_id: int | None,
-) -> None:
-    """Activate the FREE trial and send the key inline.
-
-    UX mirrors the paid balance-purchase path in
-    ``handlers/purchase.py::_purchase_with_balance``:
-
-    1. Edit the current message to the ``key_issuing`` placeholder
-       ("⏳ Выдаём ключ...") so the user gets immediate feedback while
-       NorthLine provisions the key (can take a few seconds).
-    2. On success, edit the same message to ``key_issued_free_trial`` with
-       the proper ``key_issued_kb`` keyboard.
-
-    The backend deliberately does NOT enqueue an outbox message for the
-    free-trial flow — the synchronous edit IS the delivery. See
-    ``backend/app/services/free_trial_service.py`` for the matching note.
-
-    Backend errors of interest:
-    - ``free_trial_already_used`` → friendly explanation + back.
-    - ``vpn_provider_unavailable`` → "try later" + back.
-    """
-    placeholder_text = await texts.get("key_issuing")
-    await safe_edit_or_answer(callback, placeholder_text, reply_markup=None)
-
-    try:
-        result = await api.activate_free_trial(tg_id)
-    except BackendClientError as exc:
-        text_key, log_event = "unexpected_error", "free_trial_failed"
-        if exc.error_code == "free_trial_already_used":
-            text_key = "free_trial_already_used"
-            log_event = "free_trial_already_used"
-        elif exc.error_code == "vpn_provider_unavailable":
-            text_key = "vpn_provider_unavailable"
-            log_event = "vpn_provider_unavailable"
-        text = await texts.get(text_key)
-        await safe_edit_or_answer(
-            callback, text, reply_markup=back_kb(callback="catalog")
-        )
-        await bot_log(
-            api,
-            level=LOG_LEVEL_INFO,
-            event=log_event,
-            user_id=user_id,
-            message=exc.detail[:300],
-            context={"error_code": exc.error_code, "tg_id": tg_id},
-        )
-        return
-    except BackendUnavailableError as exc:
-        await report_backend_unavailable(
-            callback,
-            api=api,
-            texts=texts,
-            user_id=user_id,
-            error=exc,
-            event="free_trial_backend_unavailable",
-        )
-        return
-    except Exception as exc:  # noqa: BLE001
-        await report_unexpected(
-            callback, api=api, texts=texts, user_id=user_id,
-            error=exc, event="free_trial_unexpected",
-        )
-        return
-
-    # Backend returns ``{"subscription": {..., "key_url": "..."}}``
-    # (FreeTrialResponse wraps SubscriptionResponse). Reading the key fields
-    # directly from ``result`` would silently produce empty strings — the
-    # bug that left "Ваш ключ:" blank in the rendered message.
-    sub_data: dict[str, Any] = result.get("subscription") or {}
-    entry = await texts.get_entry(
-        "key_issued_free_trial",
-        key_url=sub_data.get("key_url", ""),
-        days=sub_data.get("days", 3),
-        devices=sub_data.get("devices", 3),
-        subscription_id=sub_data.get("id", ""),
-    )
-    await safe_edit_or_send_media(
-        callback,
-        entry,
-        reply_markup=await key_issued_kb(
-            settings.HOWTO_CONNECT_URL, text_service=texts
-        ),
-    )
-    await bot_log(
-        api,
-        level=LOG_LEVEL_INFO,
-        event="free_trial_issued",
-        user_id=user_id,
-        message="Free trial issued",
-        context={
-            "tg_id": tg_id,
-            "subscription_id": sub_data.get("id"),
-        },
     )
 
 

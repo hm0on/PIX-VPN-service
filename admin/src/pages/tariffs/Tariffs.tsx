@@ -50,6 +50,18 @@ const tariffSchema = z.object({
   devices: z.coerce.number().int().min(1).max(20),
   sort_order: z.coerce.number().int().min(0).default(0),
   is_active: z.boolean().default(true),
+  // Conversion-pack 2026-05-13: traffic (regular + LTE) — marketing fields.
+  // Empty string → null, otherwise non-negative int.
+  traffic_gb_per_month: z
+    .union([z.coerce.number().int().min(0), z.literal('')])
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .default(null),
+  lte_gb_per_month: z
+    .union([z.coerce.number().int().min(0), z.literal('')])
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .default(null),
 });
 
 type TariffFormValues = z.infer<typeof tariffSchema>;
@@ -181,6 +193,8 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
       devices: tariff?.devices ?? 1,
       sort_order: tariff?.sort_order ?? 0,
       is_active: tariff?.is_active ?? true,
+      traffic_gb_per_month: tariff?.traffic_gb_per_month ?? '',
+      lte_gb_per_month: tariff?.lte_gb_per_month ?? '',
     },
   });
 
@@ -192,6 +206,8 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
       devices: tariff?.devices ?? 1,
       sort_order: tariff?.sort_order ?? 0,
       is_active: tariff?.is_active ?? true,
+      traffic_gb_per_month: tariff?.traffic_gb_per_month ?? '',
+      lte_gb_per_month: tariff?.lte_gb_per_month ?? '',
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tariff?.id]);
@@ -231,6 +247,8 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
         devices: values.devices,
         sort_order: values.sort_order,
         is_active: values.is_active,
+        traffic_gb_per_month: values.traffic_gb_per_month,
+        lte_gb_per_month: values.lte_gb_per_month,
       });
     } else {
       updateMut.mutate({
@@ -241,6 +259,8 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
           devices: values.devices,
           sort_order: values.sort_order,
           is_active: values.is_active,
+          traffic_gb_per_month: values.traffic_gb_per_month,
+          lte_gb_per_month: values.lte_gb_per_month,
         },
       });
     }
@@ -284,6 +304,35 @@ function TariffEditor({ tariff, onCreated, onDeleted }: TariffEditorProps) {
         <div className="space-y-1">
           <Label htmlFor="sort_order">Порядок</Label>
           <Input id="sort_order" type="number" min={0} {...form.register('sort_order')} />
+        </div>
+        {/* Conversion-pack 2026-05-13: маркетинговые поля трафика.
+            NorthLine не enforce'ит обычный трафик (cap живёт только в UI);
+            LTE — отдельный add-on, который NorthLine выдаёт фактически.  */}
+        <div className="space-y-1">
+          <Label htmlFor="traffic_gb_per_month">Трафик, GB/мес</Label>
+          <Input
+            id="traffic_gb_per_month"
+            type="number"
+            min={0}
+            placeholder="пусто = безлимит"
+            {...form.register('traffic_gb_per_month')}
+          />
+          <p className="text-xs text-muted-foreground">
+            Маркетинговое поле, не enforce'ится провайдером.
+          </p>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="lte_gb_per_month">LTE-трафик, GB/мес</Label>
+          <Input
+            id="lte_gb_per_month"
+            type="number"
+            min={0}
+            placeholder="по умолчанию 35"
+            {...form.register('lte_gb_per_month')}
+          />
+          <p className="text-xs text-muted-foreground">
+            Передаётся в NorthLine как add-on. 0 = без LTE.
+          </p>
         </div>
       </div>
 

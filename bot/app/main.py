@@ -27,6 +27,7 @@ from app.api_client import BackendClient
 from app.config import Settings, get_settings
 from app.handlers import about as h_about
 from app.handlers import catalog as h_catalog
+from app.handlers import free_trial as h_free_trial
 from app.handlers import getfileid as h_getfileid
 from app.handlers import profile as h_profile
 from app.handlers import promo as h_promo
@@ -146,6 +147,10 @@ async def _build_dispatcher(
     # added without re-plumbing.
     dp.include_router(h_start.router)
     dp.include_router(h_catalog.router)
+    # Conversion-pack 2026-05-13: top-level "free trial" button on main_menu.
+    # Registered AFTER catalog so the F.data=="free_trial" filter takes
+    # precedence over any future catalog F.data.startswith handler.
+    dp.include_router(h_free_trial.router)
     dp.include_router(h_purchase.router)
     dp.include_router(h_profile.router)
     dp.include_router(h_topup.router)

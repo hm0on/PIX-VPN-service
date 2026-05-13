@@ -103,6 +103,13 @@ const createSchema = z
     valid_until: z.string().optional().default(''),
     description: z.string().optional().default(''),
     is_active: z.boolean().default(true),
+    // Conversion-pack 2026-05-13: optional binding to a specific user.
+    // Empty string → null (legacy "anyone with the code" semantics).
+    user_id: z
+      .union([z.coerce.number().int().min(1), z.literal('')])
+      .transform((v) => (v === '' ? null : v))
+      .nullable()
+      .default(null),
   })
   .refine((v) => v.type !== 'discount_percent' || v.value <= 100, {
     message: 'Скидка не может быть больше 100%',
@@ -328,6 +335,7 @@ function CreatePromoDialog({ open, onClose, onSubmit, isPending }: CreateProps) 
       valid_until: '',
       description: '',
       is_active: true,
+      user_id: '',
     },
   });
 
@@ -342,6 +350,7 @@ function CreatePromoDialog({ open, onClose, onSubmit, isPending }: CreateProps) 
       valid_until: values.valid_until || null,
       description: values.description || null,
       is_active: values.is_active,
+      user_id: values.user_id,
     });
   };
 
@@ -441,6 +450,20 @@ function CreatePromoDialog({ open, onClose, onSubmit, isPending }: CreateProps) 
                 {...form.register('valid_until')}
               />
               <p className="text-xs text-muted-foreground">МСК (Europe/Moscow)</p>
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label htmlFor="user_id">Привязать к юзеру</Label>
+              <Input
+                id="user_id"
+                type="number"
+                min={1}
+                placeholder="внутренний users.id (необязательно)"
+                {...form.register('user_id')}
+              />
+              <p className="text-xs text-muted-foreground">
+                Если указан — промокод сработает только у этого юзера.
+                Поле принимает <code>users.id</code> из админки, не Telegram tg_id.
+              </p>
             </div>
           </div>
 

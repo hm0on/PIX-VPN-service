@@ -21,6 +21,7 @@ from app.core.logging import (
     get_logger,
     tech_log,
 )
+from app.db.models.outbox import OUTBOX_MSG_TEXT
 from app.db.models.subscription import (
     SUB_STATUS_ACTIVE,
     SUB_STATUS_FAILED,
@@ -29,12 +30,20 @@ from app.db.models.subscription import (
 )
 from app.db.models.tariff import Tariff
 from app.db.models.user import User
+from app.repositories.outbox_repo import OutboxRepository
+from app.repositories.referral_repo import ReferralRepository
 from app.repositories.subscription_repo import SubscriptionRepository
+from app.repositories.user_repo import UserRepository
+from app.services import personal_promo_service
 from app.services.northline_client import NorthLineClient
 
 logger = get_logger("free_trial_service")
 
-FREE_TRIAL_DEFAULT_DAYS = 3
+# Default trial length in days when ``tariff.free_trial_days`` is unset.
+# Bumped 3 → 5 in conversion-pack 2026-05-13 to match the new FREE-tariff
+# seed value. Authoritative source is still the DB row; this is only a
+# defensive fallback if seeds didn't run.
+FREE_TRIAL_DEFAULT_DAYS = 5
 # Fallback when ``tariff.devices`` is somehow unset. The FREE tariff seed
 # carries the authoritative number (currently 1); historically this was 3
 # and the constant was hardcoded above the tariff lookup, ignoring the row.
@@ -183,4 +192,103 @@ class FreeTrialService:
         )
         await self.session.commit()
         await self.session.refresh(sub)
+
+        # Conversion-pack 2026-05-13: reward the *referrer* with a personal
+        # 15% promo (valid 30 days) when their invitee activates the trial.
+        # This is independent of the existing "+70 ₽ when invitee pays
+        # first time" bonus (see ``referral_service.apply_referrer_bonus``)
+        # — the referrer can collect both.
+        #
+        # Idempotency is enforced both by the ``trial_bonus_issued_at`` flag
+        # on the referral row AND by the deterministic promo code
+        # ``REFTRIAL15_<sub.id>`` (UNIQUE in promo_codes; ``issue_personal_
+        # discount`` is itself idempotent on conflict).
+        #
+        # Any failure here MUST NOT propagate — the user already has their
+        # trial key persisted and committed above. Worst case the referrer
+        # silently misses a promo, which we'll surface via business_log.
+        try:
+            await self._issue_referrer_trial_bonus(user=user, sub=sub)
+        except Exception:
+            logger.exception(
+                "referrer_trial_bonus_unexpected_error",
+                user_id=user.id,
+                subscription_id=sub.id,
+            )
+
         return sub
+
+    async def _issue_referrer_trial_bonus(
+        self, *, user: User, sub: Subscription
+    ) -> None:
+        """Mint REFTRIAL15_<sub_id> for the referrer and DM them.
+
+        Separate transaction from the trial activation above. Safe to call
+        repeatedly: both the ``trial_bonus_issued_at`` guard and the
+        personal-promo factory's ON-CONFLICT path make this no-op on retry.
+        """
+        referral_repo = ReferralRepository(self.session)
+        referral = await referral_repo.get_by_referee(user.id)
+        if referral is None:
+            return
+        if referral.trial_bonus_issued_at is not None:
+            return
+
+        code = f"REFTRIAL15_{sub.id}"
+        await personal_promo_service.issue_personal_discount(
+            self.session,
+            user_id=referral.referrer_id,
+            code=code,
+            percent=15,
+            valid_for=timedelta(days=30),
+            description=(
+                f"Referrer trial bonus: referee_user_id={user.id} "
+                f"trial_subscription_id={sub.id}"
+            ),
+        )
+
+        referral.trial_bonus_issued_at = datetime.now(tz=timezone.utc)
+        await self.session.flush()
+
+        # Look up the referrer to get their tg_id for the outbox DM.
+        user_repo = UserRepository(self.session)
+        referrer = await user_repo.get_by_id(referral.referrer_id)
+        if referrer is not None and referrer.tg_id:
+            outbox = OutboxRepository(self.session)
+            await outbox.enqueue(
+                user_id=referrer.id,
+                chat_id=referrer.tg_id,
+                message_type=OUTBOX_MSG_TEXT,
+                payload={
+                    "text_key": "referrer_trial_bonus_promo",
+                    "format_kwargs": {"promo_code": code},
+                    "parse_mode": "HTML",
+                    "kind": "referrer_trial_bonus_promo",
+                },
+            )
+        else:
+            logger.warning(
+                "referrer_trial_bonus_outbox_skipped_no_tg",
+                referrer_id=referral.referrer_id,
+                referee_id=user.id,
+                promo_code=code,
+            )
+
+        await business_log(
+            self.session,
+            level=LEVEL_INFO,
+            event="referrer_trial_bonus_issued",
+            user_id=referral.referrer_id,
+            message=(
+                f"Referrer received 15% personal promo for referee "
+                f"user_id={user.id} trial sub_id={sub.id}"
+            ),
+            context={
+                "referee_id": user.id,
+                "referrer_id": referral.referrer_id,
+                "promo_code": code,
+                "trial_subscription_id": sub.id,
+                "valid_for_days": 30,
+            },
+        )
+        await self.session.commit()

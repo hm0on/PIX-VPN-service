@@ -60,7 +60,7 @@ async def create_tariff(
     redis: RedisDep,
     admin: AdminDep,
 ) -> AdminTariff:
-    tariff = Tariff(
+    tariff_kwargs: dict[str, object] = dict(
         code=payload.code,
         name=payload.name,
         description_html=payload.description_html,
@@ -70,6 +70,14 @@ async def create_tariff(
         is_free_trial=payload.is_free_trial,
         free_trial_days=payload.free_trial_days,
     )
+    # Conversion-pack 2026-05-13: traffic_gb_per_month + lte_gb_per_month
+    # передаются только если админ их указал — иначе остаются дефолты
+    # модели (NULL и 35 GB соответственно).
+    if payload.traffic_gb_per_month is not None:
+        tariff_kwargs["traffic_gb_per_month"] = payload.traffic_gb_per_month
+    if payload.lte_gb_per_month is not None:
+        tariff_kwargs["lte_gb_per_month"] = payload.lte_gb_per_month
+    tariff = Tariff(**tariff_kwargs)
     session.add(tariff)
     try:
         await session.flush()
@@ -115,6 +123,8 @@ async def patch_tariff(
         "is_active",
         "is_free_trial",
         "free_trial_days",
+        "traffic_gb_per_month",
+        "lte_gb_per_month",
     ):
         new_val = getattr(payload, field)
         if new_val is not None:

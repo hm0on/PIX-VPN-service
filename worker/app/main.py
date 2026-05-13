@@ -24,6 +24,7 @@ from app.tasks import (
     mark_expired_subscriptions_task,
     notify_expired_subscriptions_task,
     notify_expiring_subscriptions_task,
+    notify_trial_expiring_subscriptions_task,
     outbox_dispatcher_task,
     pick_scheduled_broadcasts_task,
     reconcile_subscriptions_task,
@@ -177,6 +178,17 @@ class WorkerSettings:
             name="notify_expired_subscriptions",
             hour=_HOURLY_HOURS,
             minute={53},
+            unique=True,
+        ),
+        # Conversion-pack 2026-05-13: -24h reminder for FREE trials.
+        # Minute :37 free of other hourly slots (cleanup_logs is at
+        # hour=3 only, so co-existence at 3:37 is fine — they're
+        # separate named jobs).
+        cron(
+            notify_trial_expiring_subscriptions_task,
+            name="notify_trial_expiring_subscriptions",
+            hour=_HOURLY_HOURS,
+            minute={37},
             unique=True,
         ),
         # Stage 5

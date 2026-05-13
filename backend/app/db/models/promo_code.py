@@ -5,8 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -55,9 +57,23 @@ class PromoCode(BigIntPK, Base):
         String(64), nullable=True
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Если задан — промокод применим только указанным юзером (один-к-
+    # одному). Используется для авто-выдачи персональных скидок: при
+    # окончании trial (TRIAL15_<sub_id>) и рефереру за trial-друга
+    # (REFTRIAL15_<sub_id>). NULL = глобальный промокод (старое
+    # поведение, ничего не меняется).
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+    )
 
     __table_args__ = (
         Index("ix_promo_codes_code", "code"),
         Index("ix_promo_codes_is_active", "is_active"),
         Index("ix_promo_codes_valid_until", "valid_until"),
+        # Partial index создан в миграции 0016
+        # (CREATE INDEX ... WHERE user_id IS NOT NULL) — SQLAlchemy
+        # моделирует его декларативно через ``postgresql_where`` если
+        # понадобится autogen, но в реале миграция уже всё создала.
     )

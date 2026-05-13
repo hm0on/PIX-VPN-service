@@ -27,6 +27,12 @@ class AdminTariff(BaseModel):
     is_active: bool
     is_free_trial: bool
     free_trial_days: int | None = None
+    # Conversion-pack 2026-05-13: маркетинговое поле «трафик GB/мес».
+    # NorthLine не умеет хард-кап обычного трафика, поэтому это значение
+    # отображается только в карточке тарифа (бот + админка). LTE-трафик
+    # лежит в отдельном поле ``lte_gb_per_month``.
+    traffic_gb_per_month: int | None = None
+    lte_gb_per_month: int | None = None
     durations: list[AdminTariffDuration]
 
 
@@ -41,6 +47,8 @@ class AdminTariffCreate(BaseModel):
     is_active: bool = True
     is_free_trial: bool = False
     free_trial_days: int | None = None
+    traffic_gb_per_month: int | None = Field(default=None, ge=0)
+    lte_gb_per_month: int | None = Field(default=None, ge=0)
 
 
 class AdminTariffPatch(BaseModel):
@@ -53,6 +61,8 @@ class AdminTariffPatch(BaseModel):
     is_active: bool | None = None
     is_free_trial: bool | None = None
     free_trial_days: int | None = None
+    traffic_gb_per_month: int | None = Field(default=None, ge=0)
+    lte_gb_per_month: int | None = Field(default=None, ge=0)
 
 
 class AdminTariffDurationCreate(BaseModel):

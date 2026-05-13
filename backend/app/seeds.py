@@ -29,22 +29,41 @@ TARIFFS_DATA: list[dict[str, Any]] = [
     {
         "code": "free",
         "name": "FREE",
-        "description_html": "<b>3 дня</b> бесплатного теста — 1 устройство.",
-        "devices": 1,
+        # Conversion-pack 2026-05-13: расширили триал с 3д/1устр до
+        # 5д/2устр с безлимитным обычным трафиком (LTE не выдаём).
+        # NorthLine не умеет хард-кап на обычный трафик — поле
+        # `traffic_gb_per_month=None` означает безлимит и используется
+        # только для отображения в карточке тарифа.
+        "description_html": (
+            "<b>5 дней</b> бесплатно — 2 устройства, безлимитный трафик."
+        ),
+        "devices": 2,
         "sort_order": 0,
         "is_free_trial": True,
-        "free_trial_days": 3,
+        "free_trial_days": 5,
+        "traffic_gb_per_month": None,
         # FREE-триал выдаётся без LTE add-on'а — экономим реселлер-балл.
         # Модель Tariff по умолчанию ставит 35 GB; явный 0 переопределяет.
         "lte_gb_per_month": 0,
         "durations": [],
     },
+    # Conversion-pack 2026-05-13: пересмотр устройств/трафика по тарифам.
+    # Безлимит обычного трафика → traffic_gb_per_month=None (поле живёт
+    # как маркетинговое, NorthLine не enforce'ит). LTE — реальный add-on,
+    # передаётся в провайдера. Цены оставляем как были.
+    #
+    # Ultra удалён полностью — см. data-migration 0017_conversion_pack_texts:
+    # подписок на Ultra нет, поэтому строка тарифа + всех durations сносится.
     {
         "code": "basic",
         "name": "Basic",
-        "description_html": "<b>3 устройства</b>. Оптимальный выбор для личного использования.",
-        "devices": 3,
+        "description_html": (
+            "<b>2 устройства</b>. Безлимитный трафик · 10 GB LTE."
+        ),
+        "devices": 2,
         "sort_order": 10,
+        "traffic_gb_per_month": None,  # безлимит (маркетинг)
+        "lte_gb_per_month": 10,
         "durations": [
             {"days": 30, "price_kopecks": 18900, "is_hot": False},
             {"days": 90, "price_kopecks": 45900, "is_hot": True},
@@ -55,9 +74,13 @@ TARIFFS_DATA: list[dict[str, Any]] = [
     {
         "code": "plus",
         "name": "Plus",
-        "description_html": "<b>5 устройств</b>. Для тех, кто ценит комфорт на всех гаджетах.",
-        "devices": 5,
+        "description_html": (
+            "<b>4 устройства</b>. Безлимитный трафик · 15 GB LTE."
+        ),
+        "devices": 4,
         "sort_order": 20,
+        "traffic_gb_per_month": None,
+        "lte_gb_per_month": 15,
         "durations": [
             {"days": 30, "price_kopecks": 24900, "is_hot": False},
             {"days": 90, "price_kopecks": 64900, "is_hot": True},
@@ -66,24 +89,15 @@ TARIFFS_DATA: list[dict[str, Any]] = [
         ],
     },
     {
-        "code": "ultra",
-        "name": "Ultra",
-        "description_html": "<b>10 устройств</b>. Мощный пакет для активных пользователей и их близких.",
-        "devices": 10,
-        "sort_order": 30,
-        "durations": [
-            {"days": 30, "price_kopecks": 39900, "is_hot": False},
-            {"days": 90, "price_kopecks": 99000, "is_hot": True},
-            {"days": 180, "price_kopecks": 299000, "is_hot": False},
-            {"days": 365, "price_kopecks": 349000, "is_hot": False},
-        ],
-    },
-    {
         "code": "max",
         "name": "Max",
-        "description_html": "<b>16 устройств</b>. Максимальная свобода без ограничений.",
-        "devices": 16,
+        "description_html": (
+            "<b>10 устройств</b>. Безлимитный трафик · 30 GB LTE."
+        ),
+        "devices": 10,
         "sort_order": 40,
+        "traffic_gb_per_month": None,
+        "lte_gb_per_month": 30,
         "durations": [
             {"days": 30, "price_kopecks": 59900, "is_hot": False},
             {"days": 90, "price_kopecks": 149000, "is_hot": True},
@@ -164,7 +178,7 @@ DEFAULT_TEXTS: list[dict[str, str]] = [
         "value_html": (
             "🎁 Ваш бесплатный пробный период активирован!\n\n"
             "Ключ:\n<code>{key_url}</code>\n\n"
-            "Действует 3 дня."
+            "Действует <b>5 дней</b> · 2 устройства · безлимитный трафик."
         ),
         "description": "Сообщение после активации FREE-триала.",
     },
@@ -175,11 +189,11 @@ DEFAULT_TEXTS: list[dict[str, str]] = [
             "Мы изменили конфигурацию бесплатного тарифа и перевыпустили "
             "ваш ключ. Старый ключ больше не работает — используйте новый:\n\n"
             "<code>{key_url}</code>\n\n"
-            "Действует 3 дня."
+            "Действует <b>5 дней</b> · 2 устройства · безлимитный трафик."
         ),
         "description": (
             "Уведомление при разовой массовой перевыдаче FREE-ключей "
-            "после смены конфигурации тарифа (1 устройство, без LTE)."
+            "после смены конфигурации тарифа."
         ),
     },
     {
@@ -371,22 +385,69 @@ DEFAULT_TEXTS: list[dict[str, str]] = [
             "<b>🎁 Реферальный бонус!</b>\n\n"
             "По вашей реферальной ссылке зарегистрировался <b>{username}</b> "
             "и оформил подписку.\n"
-            "На ваш баланс зачислено <b>100 ₽</b>."
+            "На ваш баланс зачислено <b>70 ₽</b>."
         ),
-        "description": "Уведомление рефереру о начислении +100 ₽.",
+        "description": "Уведомление рефереру о начислении +70 ₽.",
     },
     {
         "key": "referral_program_screen",
         "value_html": (
             "<b>🎁 Реферальная программа</b>\n\n"
-            "Приглашайте друзей и получайте <b>100 ₽</b> на баланс за каждого, "
+            "Приглашайте друзей и получайте <b>70 ₽</b> на баланс за каждого, "
             "кто оформит подписку!\n"
-            "Друзья получат скидку <b>10%</b> на первую покупку.\n\n"
+            "Друзья получат скидку <b>15%</b> на первую покупку.\n\n"
             "Ваша ссылка:\n<code>{ref_link}</code>\n\n"
             "Приглашено: <b>{invited}</b>\n"
             "Заработано: <b>{earned} ₽</b>"
         ),
         "description": "Экран реферальной программы.",
+    },
+    # ---------- Conversion-pack 2026-05-13 ----------
+    {
+        "key": "referrer_trial_bonus_promo",
+        "value_html": (
+            "<b>🎁 Ваш друг взял пробный период!</b>\n\n"
+            "Вам — персональный промокод на <b>15%</b> скидки:\n"
+            "<code>{promo_code}</code>\n\n"
+            "Действует <b>30 дней</b>. Примените на любую подписку в боте."
+        ),
+        "description": (
+            "DM рефереру, когда приглашённый юзер активирует FREE-триал. "
+            "Промокод привязан к user_id реферера (валиден только у него)."
+        ),
+    },
+    {
+        "key": "trial_expiring_with_promo",
+        "value_html": (
+            "<b>⏰ Триал кончается через 24 часа</b>\n\n"
+            "Чтобы не остаться без VPN — оформите подписку со скидкой "
+            "<b>15%</b> по промокоду:\n<code>{promo_code}</code>\n\n"
+            "Промокод действует <b>72 часа</b>."
+        ),
+        "description": (
+            "Напоминание за 24ч до конца триала. Юзер НЕ пришёл по реф-ссылке "
+            "(нет автоскидки), поэтому выдаём персональный промокод 15%."
+        ),
+    },
+    {
+        "key": "trial_expiring_no_promo",
+        "value_html": (
+            "<b>⏰ Триал кончается через 24 часа</b>\n\n"
+            "Чтобы не остаться без VPN — оформите подписку. У вас уже "
+            "активна реферальная скидка <b>15%</b> на первую покупку."
+        ),
+        "description": (
+            "Напоминание за 24ч до конца триала для юзеров, пришедших по "
+            "реф-ссылке (у них уже есть автоскидка 15% — промокод не нужен)."
+        ),
+    },
+    {
+        "key": "btn.main_menu.free_gift",
+        "value_html": "🎁 5 дней бесплатно",
+        "description": (
+            "Кнопка main_menu над «Предложить идею» — открывает FREE-триал "
+            "одним нажатием без перехода в каталог."
+        ),
     },
     # ---------- Stage 3: subscription extension ----------
     {
@@ -656,13 +717,61 @@ async def seed_tariffs(session: AsyncSession) -> None:
             # explicitly opts out — keeps the migration story simple.
             if "lte_gb_per_month" in data:
                 tariff_kwargs["lte_gb_per_month"] = data["lte_gb_per_month"]
+            if "traffic_gb_per_month" in data:
+                tariff_kwargs["traffic_gb_per_month"] = data["traffic_gb_per_month"]
             tariff = Tariff(**tariff_kwargs)
             session.add(tariff)
             await session.flush()
             logger.info("tariff_seed_created", code=tariff.code)
         else:
-            # Don't overwrite admin-tweaked descriptions/prices.
-            logger.info("tariff_seed_skip", code=tariff.code, reason="exists")
+            # Conversion-pack 2026-05-13: для FREE-тарифа надо протолкнуть
+            # новые значения (5 дней / 2 устройства / безлимит трафика)
+            # даже на существующую строку — иначе после деплоя старые
+            # юзеры и каталог будут показывать прежний 3д/1устр. Для
+            # остальных тарифов сохраняем поведение «не трогать админ-
+            # правки».
+            if data.get("is_free_trial"):
+                changed: list[str] = []
+                if data.get("devices") and tariff.devices != data["devices"]:
+                    tariff.devices = data["devices"]
+                    changed.append("devices")
+                if (
+                    data.get("free_trial_days")
+                    and tariff.free_trial_days != data["free_trial_days"]
+                ):
+                    tariff.free_trial_days = data["free_trial_days"]
+                    changed.append("free_trial_days")
+                if "traffic_gb_per_month" in data and (
+                    tariff.traffic_gb_per_month != data["traffic_gb_per_month"]
+                ):
+                    tariff.traffic_gb_per_month = data["traffic_gb_per_month"]
+                    changed.append("traffic_gb_per_month")
+                if (
+                    data.get("description_html")
+                    and tariff.description_html != data["description_html"]
+                ):
+                    tariff.description_html = data["description_html"]
+                    changed.append("description_html")
+                if "lte_gb_per_month" in data and (
+                    tariff.lte_gb_per_month != data["lte_gb_per_month"]
+                ):
+                    tariff.lte_gb_per_month = data["lte_gb_per_month"]
+                    changed.append("lte_gb_per_month")
+                if changed:
+                    await session.flush()
+                    logger.info(
+                        "tariff_seed_free_fixup",
+                        code=tariff.code,
+                        changed=changed,
+                    )
+                else:
+                    logger.info(
+                        "tariff_seed_free_fixup_noop",
+                        code=tariff.code,
+                    )
+            else:
+                # Don't overwrite admin-tweaked descriptions/prices.
+                logger.info("tariff_seed_skip", code=tariff.code, reason="exists")
 
         for d in durations_data:
             stmt = select(TariffDuration).where(

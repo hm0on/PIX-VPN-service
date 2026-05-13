@@ -76,8 +76,14 @@ async def main_menu_kb(text_service: TextService) -> InlineKeyboardMarkup:
 
     Row 1: [Каталог (синяя)] [Профиль]
     Row 2: [Поддержка] [Промокод]
-    Row 3: [Предложить идею]
-    Row 4: [О проекте]
+    Row 3: [🎁 5 дней бесплатно (зелёная)]
+    Row 4: [Предложить идею]
+    Row 5: [О проекте]
+
+    Row 3 was added in conversion-pack 2026-05-13 to make the FREE-trial
+    discoverable at the top level (was buried in catalog → FREE tariff).
+    Callback ``free_trial`` is handled in ``handlers/free_trial.py`` and
+    shares the activation flow with the catalog path.
 
     Labels come from the ``texts`` table (kind=button) so admins can rename
     them without a code change. The fallback path in ``TextService`` keeps
@@ -89,6 +95,7 @@ async def main_menu_kb(text_service: TextService) -> InlineKeyboardMarkup:
         "btn.main_menu.profile",
         "btn.main_menu.support",
         "btn.main_menu.promo",
+        "btn.main_menu.free_gift",
         "btn.main_menu.idea",
         "btn.main_menu.about",
     )
@@ -118,6 +125,14 @@ async def main_menu_kb(text_service: TextService) -> InlineKeyboardMarkup:
                     callback_data="promo",
                     icon_custom_emoji_id=lbl["btn.main_menu.promo"][1],
                 ),
+            ],
+            [
+                make_button(
+                    lbl["btn.main_menu.free_gift"][0],
+                    callback_data="free_trial",
+                    style=ButtonStyle.SUCCESS,
+                    icon_custom_emoji_id=lbl["btn.main_menu.free_gift"][1],
+                )
             ],
             [
                 make_button(

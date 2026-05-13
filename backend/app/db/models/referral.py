@@ -42,6 +42,14 @@ class Referral(BigIntPK, Base):
         ForeignKey("payments.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Момент, когда рефереру выдали персональный промокод 15% за то,
+    # что приглашённый юзер взял free trial. NULL = ещё не выдавали;
+    # non-NULL = идемпотентность (повторный trial у того же referee
+    # больше не триггерит выдачу). Независимо от ``bonus_paid_at``
+    # (paid-бонус) — реферер может получить и trial-промо, и +70₽.
+    trial_bonus_issued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

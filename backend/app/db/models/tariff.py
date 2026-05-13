@@ -38,6 +38,14 @@ class Tariff(IntPK, Base):
     lte_gb_per_month: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="35", default=35
     )
+    # «Обычный» трафик, GB/мес. NorthLine не принимает hard-cap для
+    # non-LTE (только ``unlimited_traffic`` boolean), поэтому значение
+    # рендерится в UI/seeds-текстах, на провайдер не передаётся. Для
+    # FREE-trial — 50 (декларируемый), для paid тарифов сейчас NULL
+    # (фактический потолок NorthLine = 1 ТБ/устройство по умолчанию).
+    traffic_gb_per_month: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
 
     durations: Mapped[list["TariffDuration"]] = relationship(
         back_populates="tariff",

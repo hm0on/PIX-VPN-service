@@ -80,6 +80,11 @@ class AdminPromo(BaseModel):
     valid_until: datetime | None = None
     is_active: bool
     description: str | None = None
+    # Conversion-pack 2026-05-13: персональные промокоды. Non-NULL =
+    # промо работает только у этого юзера (внутренний ``users.id``).
+    # Сервис ``promo_service`` рендерит ``not_for_this_user`` отказ
+    # для всех остальных.
+    user_id: int | None = None
     created_at: datetime
     created_by_admin_key_label: str | None = None
 
@@ -96,6 +101,10 @@ class AdminPromoCreate(BaseModel):
     valid_until: datetime | None = None
     is_active: bool = True
     description: str | None = None
+    # Optional: bind this promo to a single user (internal ``users.id``).
+    # Admin UI shows a numeric input; ``None`` keeps the legacy "anyone
+    # with the code can use it" behavior.
+    user_id: int | None = Field(default=None, ge=1)
 
     @field_validator("valid_from", mode="after")
     @classmethod

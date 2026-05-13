@@ -12,6 +12,10 @@ export interface Promo {
   valid_until: string | null;
   description: string | null;
   is_active: boolean;
+  // Conversion-pack 2026-05-13: personal promo — non-null means the code
+  // works only for this specific internal users.id (backend rejects with
+  // ``not_for_this_user`` otherwise).
+  user_id?: number | null;
   created_at?: string;
 }
 
@@ -25,6 +29,7 @@ export interface PromoCreatePayload {
   valid_until?: string | null;
   description?: string | null;
   is_active?: boolean;
+  user_id?: number | null;
 }
 
 export interface PromoUpdatePayload {
