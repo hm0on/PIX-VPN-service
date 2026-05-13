@@ -61,7 +61,7 @@ function adaptListResponse(data: unknown): unknown {
       page_size?: number;
     };
     const page = flat.page ?? 1;
-    const perPage = flat.page_size ?? flat.items.length || 1;
+    const perPage = flat.page_size ?? (flat.items.length || 1);
     const pages = perPage > 0 ? Math.max(1, Math.ceil(flat.total / perPage)) : 1;
     return {
       items: flat.items,
