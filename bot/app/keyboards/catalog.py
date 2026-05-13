@@ -73,28 +73,27 @@ def _duration_label(days: int) -> str:
 
 
 def catalog_kb(tariffs: list[dict[str, Any]]) -> InlineKeyboardMarkup:
-    """Render tariff list — FREE first, then paid tariffs by ``sort_order``.
+    """Render the paid tariff list, ordered by ``sort_order``.
 
-    Tariffs lacking ``is_active=True`` are skipped. FREE is always pinned to
-    the top regardless of its sort_order.
+    Tariffs lacking ``is_active=True`` are skipped. FREE-триал (любой
+    тариф с ``is_free_trial=True``) теперь рисуется отдельной зелёной
+    кнопкой в main_menu (см. ``btn.main_menu.free_gift``) и из каталога
+    исключён — иначе у юзера два входа на одно и то же.
     """
-    visible = [t for t in tariffs if t.get("is_active", True)]
-    free = [t for t in visible if t.get("is_free_trial")]
-    paid = [t for t in visible if not t.get("is_free_trial")]
-    paid.sort(key=lambda t: int(t.get("sort_order", 0)))
+    visible = [
+        t
+        for t in tariffs
+        if t.get("is_active", True) and not t.get("is_free_trial")
+    ]
+    visible.sort(key=lambda t: int(t.get("sort_order", 0)))
 
     rows: list[list[InlineKeyboardButton]] = []
-    for t in [*free, *paid]:
+    for t in visible:
         label = str(t.get("name", "—"))
-        # FREE: "FREE — 3 дня"; paid: "Basic — 3 устройства"
-        if t.get("is_free_trial"):
-            days = t.get("days")
-            if days:
-                label = f"{label} — {days} дня"
-        else:
-            devices = t.get("devices")
-            if devices:
-                label = f"{label} — {devices} устройств"
+        # Paid label: "Basic — 3 устройства".
+        devices = t.get("devices")
+        if devices:
+            label = f"{label} — {devices} устройств"
         rows.append([make_button(label, callback_data=f"tariff:{t['id']}")])
 
     rows.append([make_button("← Назад", callback_data="main_menu")])
