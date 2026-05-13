@@ -226,6 +226,34 @@ def upgrade() -> None:
         )
         bind.execute(sa.text("DELETE FROM tariffs WHERE code = 'ultra'"))
 
+    # ------------------------------------------------------------------ #
+    # Conversion-pack 2026-05-13: re-grant FREE trial to existing users.
+    # ------------------------------------------------------------------ #
+    # Бизнес-решение: дать всем «бывалым» юзерам ещё раз опробовать
+    # обновлённый триал (5д / 2 устр / безлимит вместо 3д / 1 устр).
+    # `FreeTrialService.is_free_trial_used` смотрит ровно одно условие
+    # — `EXISTS Subscription WHERE user_id=? AND is_free_trial=TRUE`.
+    # Сбрасываем флаг у всех ранее активированных триалов, тогда чек
+    # пройдёт и юзер сможет взять новый. Новым юзерам по-прежнему
+    # достанется только один триал, потому что новая запись опять
+    # получит `is_free_trial=TRUE`.
+    #
+    # Жёстко привязываемся ко времени запуска миграции (`NOW()`),
+    # чтобы любая активация триала, прилетевшая в момент upgrade'а,
+    # не попала в UPDATE и не сломала «новый юзер = один триал».
+    # Логи / аналитику теряем (старые триалы перестанут считаться),
+    # но юзер прямо подтвердил такой trade-off.
+    bind.execute(
+        sa.text(
+            """
+            UPDATE subscriptions
+               SET is_free_trial = FALSE
+             WHERE is_free_trial = TRUE
+               AND created_at < NOW()
+            """
+        )
+    )
+
 
 def downgrade() -> None:
     # No-op: rolling back the copy is more disruptive than helpful.
