@@ -11,7 +11,9 @@ async def test_list_tariffs_after_seed(client, auth_headers, seed_db):  # noqa: 
     assert r.status_code == 200, r.text
     body = r.json()
     codes = {t["code"] for t in body}
-    assert {"free", "basic", "plus", "ultra", "max"} <= codes
+    # Conversion-pack 2026-05-13: Ultra removed, FREE expanded to 5d.
+    assert {"free", "basic", "plus", "max"} <= codes
+    assert "ultra" not in codes
 
     # Sorted by sort_order
     sort_orders = [t["sort_order"] for t in body]
@@ -20,7 +22,7 @@ async def test_list_tariffs_after_seed(client, auth_headers, seed_db):  # noqa: 
     # FREE has no durations.
     free = next(t for t in body if t["code"] == "free")
     assert free["is_free_trial"] is True
-    assert free["free_trial_days"] == 3
+    assert free["free_trial_days"] == 5
     assert free["durations"] == []
 
     # Paid tariffs have 4 durations sorted by days

@@ -90,7 +90,7 @@ def catalog_kb(tariffs: list[dict[str, Any]]) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for t in visible:
         label = str(t.get("name", "—"))
-        # Paid label: "Basic — 3 устройства".
+        # Paid label: "Basic — 2 устройств".
         devices = t.get("devices")
         if devices:
             label = f"{label} — {devices} устройств"
